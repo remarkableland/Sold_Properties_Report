@@ -196,6 +196,36 @@ def create_excel_download(df, filename):
         'border': 1
     })
     
+    # Highlight formats for missing/zero values
+    currency_highlight_format = workbook.add_format({
+        'num_format': '$#,##0',
+        'border': 1,
+        'bg_color': '#FFFF99'  # Yellow background
+    })
+    
+    percentage_highlight_format = workbook.add_format({
+        'num_format': '0%',
+        'border': 1,
+        'bg_color': '#FFFF99'  # Yellow background
+    })
+    
+    date_highlight_format = workbook.add_format({
+        'num_format': 'mm/dd/yyyy',
+        'border': 1,
+        'bg_color': '#FFFF99'  # Yellow background
+    })
+    
+    number_highlight_format = workbook.add_format({
+        'num_format': '#,##0',
+        'border': 1,
+        'bg_color': '#FFFF99'  # Yellow background
+    })
+    
+    text_highlight_format = workbook.add_format({
+        'border': 1,
+        'bg_color': '#FFFF99'  # Yellow background
+    })
+    
     # Write headers
     headers = ['Property Name', 'Owner', 'State', 'County', 'Acres', 'Cost Basis', 'Date Purchased',
                'Opportunity Status', 'Days Until Sold', 'Date Sold', 'Gross Sales Price', 'Closing Costs',
@@ -206,82 +236,110 @@ def create_excel_download(df, filename):
     
     # Write data
     for row, (_, data) in enumerate(df.iterrows(), 1):
-        worksheet.write(row, 0, data.get('Property Name', ''))
-        worksheet.write(row, 1, data.get('Owner', ''))
-        worksheet.write(row, 2, data.get('State', ''))
-        worksheet.write(row, 3, data.get('County', ''))
+        # Property Name - highlight if empty
+        prop_name = data.get('Property Name', '')
+        if prop_name == '' or pd.isna(prop_name):
+            worksheet.write(row, 0, prop_name, text_highlight_format)
+        else:
+            worksheet.write(row, 0, prop_name)
         
-        # Handle Acres with null/inf check
+        # Owner - highlight if empty
+        owner = data.get('Owner', '')
+        if owner == '' or pd.isna(owner):
+            worksheet.write(row, 1, owner, text_highlight_format)
+        else:
+            worksheet.write(row, 1, owner)
+        
+        # State - highlight if empty
+        state = data.get('State', '')
+        if state == '' or pd.isna(state):
+            worksheet.write(row, 2, state, text_highlight_format)
+        else:
+            worksheet.write(row, 2, state)
+        
+        # County - highlight if empty
+        county = data.get('County', '')
+        if county == '' or pd.isna(county):
+            worksheet.write(row, 3, county, text_highlight_format)
+        else:
+            worksheet.write(row, 3, county)
+        
+        # Handle Acres with null/inf check and highlighting
         acres = data.get('Acres', 0)
-        if pd.notna(acres) and np.isfinite(acres):
+        if pd.notna(acres) and np.isfinite(acres) and acres != 0:
             worksheet.write(row, 4, acres, number_format)
         else:
-            worksheet.write(row, 4, 0, number_format)
+            worksheet.write(row, 4, 0, number_highlight_format)
         
-        # Handle Cost Basis with null/inf check
+        # Handle Cost Basis with null/inf check and highlighting
         cost_basis = data.get('Cost Basis', 0)
-        if pd.notna(cost_basis) and np.isfinite(cost_basis):
+        if pd.notna(cost_basis) and np.isfinite(cost_basis) and cost_basis != 0:
             worksheet.write(row, 5, cost_basis, currency_format)
         else:
-            worksheet.write(row, 5, 0, currency_format)
+            worksheet.write(row, 5, 0, currency_highlight_format)
         
-        # Handle Date Purchased with null check
+        # Handle Date Purchased with null check and highlighting
         date_purchased = data.get('Date Purchased')
         if pd.notna(date_purchased) and date_purchased != '':
             worksheet.write(row, 6, date_purchased, date_format)
         else:
-            worksheet.write(row, 6, '')
+            worksheet.write(row, 6, '', date_highlight_format)
             
-        worksheet.write(row, 7, data.get('Opportunity Status', ''))
+        # Opportunity Status - highlight if empty
+        opp_status = data.get('Opportunity Status', '')
+        if opp_status == '' or pd.isna(opp_status):
+            worksheet.write(row, 7, opp_status, text_highlight_format)
+        else:
+            worksheet.write(row, 7, opp_status)
         
-        # Handle Days Until Sold with null/inf check
+        # Handle Days Until Sold with null/inf check and highlighting
         days_sold = data.get('Days Until Sold', 0)
-        if pd.notna(days_sold) and np.isfinite(days_sold):
+        if pd.notna(days_sold) and np.isfinite(days_sold) and days_sold != 0:
             worksheet.write(row, 8, int(days_sold), number_format)
         else:
-            worksheet.write(row, 8, 0, number_format)
+            worksheet.write(row, 8, 0, number_highlight_format)
         
-        # Handle Date Sold with null check
+        # Handle Date Sold with null check and highlighting
         date_sold = data.get('Date Sold')
         if pd.notna(date_sold) and date_sold != '':
             worksheet.write(row, 9, date_sold, date_format)
         else:
-            worksheet.write(row, 9, '')
+            worksheet.write(row, 9, '', date_highlight_format)
         
-        # Handle Gross Sales Price with null/inf check
+        # Handle Gross Sales Price with null/inf check and highlighting
         gross_sales = data.get('Gross Sales Price', 0)
-        if pd.notna(gross_sales) and np.isfinite(gross_sales):
+        if pd.notna(gross_sales) and np.isfinite(gross_sales) and gross_sales != 0:
             worksheet.write(row, 10, gross_sales, currency_format)
         else:
-            worksheet.write(row, 10, 0, currency_format)
+            worksheet.write(row, 10, 0, currency_highlight_format)
         
-        # Handle Closing Costs with null/inf check
+        # Handle Closing Costs with null/inf check and highlighting
         closing_costs = data.get('Closing Costs', 0)
-        if pd.notna(closing_costs) and np.isfinite(closing_costs):
+        if pd.notna(closing_costs) and np.isfinite(closing_costs) and closing_costs != 0:
             worksheet.write(row, 11, closing_costs, currency_format)
         else:
-            worksheet.write(row, 11, 0, currency_format)
+            worksheet.write(row, 11, 0, currency_highlight_format)
         
-        # Handle Realized Gross Profit with null/inf check
+        # Handle Realized Gross Profit with null/inf check and highlighting
         gross_profit = data.get('Realized Gross Profit', 0)
-        if pd.notna(gross_profit) and np.isfinite(gross_profit):
+        if pd.notna(gross_profit) and np.isfinite(gross_profit) and gross_profit != 0:
             worksheet.write(row, 12, gross_profit, currency_format)
         else:
-            worksheet.write(row, 12, 0, currency_format)
+            worksheet.write(row, 12, 0, currency_highlight_format)
         
-        # Handle Realized Markup with null/inf check
+        # Handle Realized Markup with null/inf check and highlighting
         markup = data.get('Realized Markup', 0)
-        if pd.notna(markup) and np.isfinite(markup):
+        if pd.notna(markup) and np.isfinite(markup) and markup != 0:
             worksheet.write(row, 13, markup / 100, percentage_format)
         else:
-            worksheet.write(row, 13, 0, percentage_format)
+            worksheet.write(row, 13, 0, percentage_highlight_format)
         
-        # Handle Realized Margin with null/inf check
+        # Handle Realized Margin with null/inf check and highlighting
         margin = data.get('Realized Margin', 0)
-        if pd.notna(margin) and np.isfinite(margin):
+        if pd.notna(margin) and np.isfinite(margin) and margin != 0:
             worksheet.write(row, 14, margin / 100, percentage_format)
         else:
-            worksheet.write(row, 14, 0, percentage_format)
+            worksheet.write(row, 14, 0, percentage_highlight_format)
     
     # Auto-adjust column widths
     for col in range(len(headers)):
