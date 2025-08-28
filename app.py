@@ -161,32 +161,10 @@ def create_pdf_download(df_dict, filename):
 
     buffer = BytesIO()
     
-    # Get page dimensions
-    page_width, page_height = landscape(legal)
-    
-    def footer_canvas(canvas, doc):
-        """Add footer to each page"""
-        canvas.saveState()
-        
-        # Footer text
-        footer_text = f"Generated: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}"
-        page_text = f"Page {canvas.getPageNumber()}"
-        
-        # Draw footer text (left side)
-        canvas.setFont("Helvetica", 8)
-        canvas.drawString(0.5*inch, 0.4*inch, footer_text)
-        
-        # Draw page numbers (right side)
-        canvas.drawRightString(page_width - 0.5*inch, 0.4*inch, page_text)
-        
-        canvas.restoreState()
-    
-    # Create the PDF document with landscape legal page size and fixed footer
+    # Create the PDF document with landscape legal page size
     doc = SimpleDocTemplate(buffer, pagesize=landscape(legal),
-                          topMargin=0.5*inch, bottomMargin=0.8*inch,
-                          leftMargin=0.5*inch, rightMargin=0.5*inch,
-                          onFirstPage=footer_canvas,     # Footer on first page
-                          onLaterPages=footer_canvas)    # Footer on subsequent pages
+                          topMargin=0.5*inch, bottomMargin=0.5*inch,
+                          leftMargin=0.5*inch, rightMargin=0.5*inch)
     
     story = []
     
