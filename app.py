@@ -7,12 +7,10 @@ import xlsxwriter
 
 try:
     from reportlab.lib.pagesizes import letter, legal, landscape
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, PageTemplate, Frame
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch
     from reportlab.lib import colors
-    from reportlab.platypus.doctemplate import PageTemplate
-    from reportlab.platypus.frames import Frame
     REPORTLAB_AVAILABLE = True
 except ImportError:
     REPORTLAB_AVAILABLE = False
@@ -183,21 +181,12 @@ def create_pdf_download(df_dict, filename):
         
         canvas.restoreState()
     
-    # Create the PDF document with landscape legal page size
-    # Use onFirstPage AND onLaterPages to ensure footer on all pages
+    # Create the PDF document with landscape legal page size and fixed footer
     doc = SimpleDocTemplate(buffer, pagesize=landscape(legal),
                           topMargin=0.5*inch, bottomMargin=0.8*inch,
-                          leftMargin=0.5*inch, rightMargin=0.5*inch)
-    
-    # Create frame for main content (excluding footer space)
-    frame = Frame(0.5*inch, 0.8*inch, page_width - 1*inch, page_height - 1.3*inch, 
-                  leftPadding=0, bottomPadding=0, rightPadding=0, topPadding=0)
-    
-    # Create page template with footer function applied to ALL pages
-    template = PageTemplate(id='main', frames=frame, 
-                           onPage=footer_canvas,        # Footer on every page
-                           onPageEnd=footer_canvas)     # Ensure footer at page end
-    doc.addPageTemplates([template])
+                          leftMargin=0.5*inch, rightMargin=0.5*inch,
+                          onFirstPage=footer_canvas,     # Footer on first page
+                          onLaterPages=footer_canvas)    # Footer on subsequent pages
     
     story = []
     
