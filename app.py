@@ -163,17 +163,12 @@ def create_pdf_download(df_dict, filename):
 
     buffer = BytesIO()
     
-    # Create the PDF document with landscape legal page size
-    doc = SimpleDocTemplate(buffer, pagesize=landscape(legal),
-                          topMargin=0.5*inch, bottomMargin=0.8*inch,  # Increased bottom margin for footer
-                          leftMargin=0.5*inch, rightMargin=0.5*inch)
+    # Get page dimensions
+    page_width, page_height = landscape(legal)
     
     def footer_canvas(canvas, doc):
         """Add footer to each page"""
         canvas.saveState()
-        
-        # Get page dimensions
-        page_width, page_height = landscape(legal)
         
         # Footer text
         footer_text = f"Generated: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}"
@@ -188,19 +183,21 @@ def create_pdf_download(df_dict, filename):
         
         canvas.restoreState()
     
-    # Get page dimensions
-    page_width, page_height = landscape(legal)
+    # Create the PDF document with landscape legal page size
+    # Use onFirstPage AND onLaterPages to ensure footer on all pages
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(legal),
+                          topMargin=0.5*inch, bottomMargin=0.8*inch,
+                          leftMargin=0.5*inch, rightMargin=0.5*inch)
     
     # Create frame for main content (excluding footer space)
     frame = Frame(0.5*inch, 0.8*inch, page_width - 1*inch, page_height - 1.3*inch, 
                   leftPadding=0, bottomPadding=0, rightPadding=0, topPadding=0)
     
-    # Create page template with footer function and force it to be used
-    template = PageTemplate(id='main', frames=frame, onPage=footer_canvas)
+    # Create page template with footer function applied to ALL pages
+    template = PageTemplate(id='main', frames=frame, 
+                           onPage=footer_canvas,        # Footer on every page
+                           onPageEnd=footer_canvas)     # Ensure footer at page end
     doc.addPageTemplates([template])
-    
-    # Force the template to be used on all pages
-    doc.pageTemplate = 'main'
     
     story = []
     
