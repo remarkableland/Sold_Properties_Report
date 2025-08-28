@@ -209,10 +209,24 @@ def create_excel_download(df, filename):
         worksheet.write(row, 2, data.get('County', ''))
         worksheet.write(row, 3, data.get('Acres', 0), number_format)
         worksheet.write(row, 4, data.get('Cost Basis', 0), currency_format)
-        worksheet.write(row, 5, data.get('Date Purchased', ''), date_format)
+        
+        # Handle Date Purchased with null check
+        date_purchased = data.get('Date Purchased')
+        if pd.notna(date_purchased) and date_purchased != '':
+            worksheet.write(row, 5, date_purchased, date_format)
+        else:
+            worksheet.write(row, 5, '')
+            
         worksheet.write(row, 6, data.get('Opportunity Status', ''))
         worksheet.write(row, 7, data.get('Days Until Sold', 0), number_format)
-        worksheet.write(row, 8, data.get('Date Sold', ''), date_format)
+        
+        # Handle Date Sold with null check
+        date_sold = data.get('Date Sold')
+        if pd.notna(date_sold) and date_sold != '':
+            worksheet.write(row, 8, date_sold, date_format)
+        else:
+            worksheet.write(row, 8, '')
+            
         worksheet.write(row, 9, data.get('Gross Sales Price', 0), currency_format)
         worksheet.write(row, 10, data.get('Realized Gross Profit', 0), currency_format)
         worksheet.write(row, 11, data.get('Realized Markup', 0) / 100, percentage_format)
@@ -322,9 +336,13 @@ def main():
                 if 'Realized Markup' in display_df.columns:
                     display_df['Realized Markup'] = display_df['Realized Markup'].apply(format_percentage)
                 if 'Date Purchased' in display_df.columns:
-                    display_df['Date Purchased'] = display_df['Date Purchased'].dt.strftime('%m/%d/%Y')
+                    display_df['Date Purchased'] = display_df['Date Purchased'].apply(
+                        lambda x: x.strftime('%m/%d/%Y') if pd.notna(x) else ''
+                    )
                 if 'Date Sold' in display_df.columns:
-                    display_df['Date Sold'] = display_df['Date Sold'].dt.strftime('%m/%d/%Y')
+                    display_df['Date Sold'] = display_df['Date Sold'].apply(
+                        lambda x: x.strftime('%m/%d/%Y') if pd.notna(x) else ''
+                    )
                 
                 st.dataframe(display_df, use_container_width=True)
                 
