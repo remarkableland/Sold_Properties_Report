@@ -317,70 +317,72 @@ def main():
             with col1:
                 st.write("**Select Calendar Quarters:**")
                 available_quarters = sorted([q for q in df_processed['Quarter_Year'].unique() if pd.notna(q)])
-                selected_quarters = []
                 
                 # Quarter selection controls
                 quarter_col1, quarter_col2 = st.columns(2)
                 with quarter_col1:
-                    if st.button("Select All Quarters", key="select_all_quarters"):
-                        st.session_state.select_all_quarters = True
-                        st.session_state.select_none_quarters = False
+                    select_all_quarters = st.button("Select All Quarters", key="btn_select_all_quarters")
                 with quarter_col2:
-                    if st.button("Select None Quarters", key="select_none_quarters"):
-                        st.session_state.select_none_quarters = True
-                        st.session_state.select_all_quarters = False
+                    select_none_quarters = st.button("Select None Quarters", key="btn_select_none_quarters")
                 
-                # Initialize session state for quarters if not exists
-                if 'select_all_quarters' not in st.session_state:
-                    st.session_state.select_all_quarters = False
-                if 'select_none_quarters' not in st.session_state:
-                    st.session_state.select_none_quarters = False
+                # Initialize session state for quarter selections if not exists
+                if 'quarter_selections' not in st.session_state:
+                    st.session_state.quarter_selections = {q: False for q in available_quarters}
                 
-                # Determine default value based on session state
-                if st.session_state.select_all_quarters:
-                    quarter_default = True
-                elif st.session_state.select_none_quarters:
-                    quarter_default = False
-                else:
-                    quarter_default = False  # Default to unselected
+                # Handle button clicks
+                if select_all_quarters:
+                    for q in available_quarters:
+                        st.session_state.quarter_selections[q] = True
+                        
+                if select_none_quarters:
+                    for q in available_quarters:
+                        st.session_state.quarter_selections[q] = False
                 
+                # Display checkboxes and collect selected quarters
+                selected_quarters = []
                 for quarter in available_quarters:
-                    if st.checkbox(f"{quarter}", value=quarter_default, key=f"quarter_{quarter}"):
+                    # Use session state value if it exists, otherwise default to False
+                    current_value = st.session_state.quarter_selections.get(quarter, False)
+                    if st.checkbox(f"{quarter}", value=current_value, key=f"cb_quarter_{quarter}"):
                         selected_quarters.append(quarter)
+                        st.session_state.quarter_selections[quarter] = True
+                    else:
+                        st.session_state.quarter_selections[quarter] = False
             
             with col2:
                 st.write("**Select Owners:**")
                 available_owners = sorted([o for o in df_processed['Owner'].unique() if pd.notna(o) and o != ''])
-                selected_owners = []
                 
                 # Owner selection controls
                 owner_col1, owner_col2 = st.columns(2)
                 with owner_col1:
-                    if st.button("Select All Owners", key="select_all_owners"):
-                        st.session_state.select_all_owners = True
-                        st.session_state.select_none_owners = False
+                    select_all_owners = st.button("Select All Owners", key="btn_select_all_owners")
                 with owner_col2:
-                    if st.button("Select None Owners", key="select_none_owners"):
-                        st.session_state.select_none_owners = True
-                        st.session_state.select_all_owners = False
+                    select_none_owners = st.button("Select None Owners", key="btn_select_none_owners")
                 
-                # Initialize session state for owners if not exists
-                if 'select_all_owners' not in st.session_state:
-                    st.session_state.select_all_owners = False
-                if 'select_none_owners' not in st.session_state:
-                    st.session_state.select_none_owners = False
+                # Initialize session state for owner selections if not exists
+                if 'owner_selections' not in st.session_state:
+                    st.session_state.owner_selections = {o: False for o in available_owners}
                 
-                # Determine default value based on session state
-                if st.session_state.select_all_owners:
-                    owner_default = True
-                elif st.session_state.select_none_owners:
-                    owner_default = False
-                else:
-                    owner_default = False  # Default to unselected
+                # Handle button clicks
+                if select_all_owners:
+                    for o in available_owners:
+                        st.session_state.owner_selections[o] = True
+                        
+                if select_none_owners:
+                    for o in available_owners:
+                        st.session_state.owner_selections[o] = False
                 
+                # Display checkboxes and collect selected owners
+                selected_owners = []
                 for owner in available_owners:
-                    if st.checkbox(f"{owner}", value=owner_default, key=f"owner_{owner}"):
+                    # Use session state value if it exists, otherwise default to False
+                    current_value = st.session_state.owner_selections.get(owner, False)
+                    if st.checkbox(f"{owner}", value=current_value, key=f"cb_owner_{owner}"):
                         selected_owners.append(owner)
+                        st.session_state.owner_selections[owner] = True
+                    else:
+                        st.session_state.owner_selections[owner] = False
             
             # Filter data based on selections
             filtered_df = df_processed[
