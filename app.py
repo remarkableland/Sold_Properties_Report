@@ -9,7 +9,7 @@ try:
     from reportlab.lib.pagesizes import letter, legal, landscape
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.units import inch
+    from reportlit.lib.units import inch
     from reportlab.lib import colors
     REPORTLAB_AVAILABLE = True
 except ImportError:
@@ -162,7 +162,7 @@ def create_pdf_download(df_dict, filename):
     buffer = BytesIO()
     
     # Create the PDF document with landscape legal page size
-    doc = SimpleDocTemplate(buffer, pagesize=landscape(legal),
+    doc = SimpleDocDocument(buffer, pagesize=landscape(legal),
                           topMargin=0.5*inch, bottomMargin=0.5*inch,
                           leftMargin=0.5*inch, rightMargin=0.5*inch)
     
@@ -206,6 +206,14 @@ def create_pdf_download(df_dict, filename):
         spaceAfter=12
     )
     
+    # Cell text style for wrapping
+    cell_style = ParagraphStyle(
+        'CellStyle',
+        parent=styles['Normal'],
+        fontSize=8,
+        leading=9
+    )
+    
     # Title
     story.append(Paragraph("Sold Properties Report", title_style))
     story.append(Paragraph(f"Generated: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}", summary_style))
@@ -229,8 +237,15 @@ def create_pdf_download(df_dict, filename):
         table_data = [table_headers]
         
         for _, row in quarter_data.iterrows():
+            # Create wrapped property name
+            prop_name = str(row.get('Property Name', ''))
+            if len(prop_name) > 25:
+                prop_name_para = Paragraph(prop_name, cell_style)
+            else:
+                prop_name_para = prop_name
+                
             formatted_row = [
-                str(row.get('Property Name', ''))[:30],  # Allow longer property names
+                prop_name_para,  # Property name with wrapping
                 str(row.get('Owner', ''))[:18],  # Allow longer owner names
                 str(row.get('State', '')),
                 str(row.get('County', ''))[:15],  # Allow longer county names
@@ -247,10 +262,10 @@ def create_pdf_download(df_dict, filename):
             ]
             table_data.append(formatted_row)
         
-        # Create table with optimized column widths for landscape legal (14" x 8.5")
+        # Create table with wider columns for landscape legal (14" x 8.5")
         # Total usable width: approximately 13" (14" - 1" margins)
-        col_widths = [1.5*inch, 1.0*inch, 0.4*inch, 0.8*inch, 0.5*inch, 0.8*inch, 
-                     0.8*inch, 0.6*inch, 0.8*inch, 1.0*inch, 0.8*inch, 1.0*inch, 0.6*inch, 0.6*inch]
+        col_widths = [2.0*inch, 1.2*inch, 0.4*inch, 0.9*inch, 0.5*inch, 0.9*inch, 
+                     0.9*inch, 0.6*inch, 0.9*inch, 1.1*inch, 0.9*inch, 1.1*inch, 0.6*inch, 0.6*inch]
         
         table = Table(table_data, colWidths=col_widths, repeatRows=1)
         
