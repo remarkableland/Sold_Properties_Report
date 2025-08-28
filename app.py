@@ -7,7 +7,7 @@ import xlsxwriter
 
 try:
     from reportlab.lib.pagesizes import letter, legal, landscape
-    from reportlab.platypus import SimpleDocDocument, Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch
     from reportlab.lib import colors
@@ -35,6 +35,24 @@ FIELD_MAPPING = {
     'custom.Asset_Gross_Sales_Price': 'Gross Sales Price',
     'custom.Asset_Closing_Costs': 'Closing Costs'
 }
+
+def safe_numeric_value(value, default=0):
+    """Safely convert value to numeric, handling NaN/INF"""
+    try:
+        if pd.isna(value) or np.isinf(value):
+            return default
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+def safe_int_value(value, default=0):
+    """Safely convert value to integer, handling NaN/INF"""
+    try:
+        if pd.isna(value) or np.isinf(value):
+            return default
+        return int(value)
+    except (ValueError, TypeError):
+        return default
 
 def parse_date(date_str):
     """Parse date string to datetime object"""
@@ -78,12 +96,17 @@ def calculate_days_until_sold(date_purchased, date_sold):
 
 def calculate_realized_gross_profit(gross_sales_price, cost_basis, closing_costs):
     """Calculate realized gross profit"""
-    closing_costs = closing_costs if not pd.isna(closing_costs) else 0
+    gross_sales_price = safe_numeric_value(gross_sales_price, 0)
+    cost_basis = safe_numeric_value(cost_basis, 0)
+    closing_costs = safe_numeric_value(closing_costs, 0)
     return gross_sales_price - cost_basis - closing_costs
 
 def calculate_realized_markup(gross_sales_price, cost_basis, closing_costs):
     """Calculate realized markup percentage"""
-    closing_costs = closing_costs if not pd.isna(closing_costs) else 0
+    gross_sales_price = safe_numeric_value(gross_sales_price, 0)
+    cost_basis = safe_numeric_value(cost_basis, 0)
+    closing_costs = safe_numeric_value(closing_costs, 0)
+    
     total_cost = cost_basis + closing_costs
     if total_cost == 0:
         return 0
@@ -91,6 +114,9 @@ def calculate_realized_markup(gross_sales_price, cost_basis, closing_costs):
 
 def calculate_realized_margin(realized_gross_profit, gross_sales_price):
     """Calculate realized margin percentage"""
+    realized_gross_profit = safe_numeric_value(realized_gross_profit, 0)
+    gross_sales_price = safe_numeric_value(gross_sales_price, 0)
+    
     if gross_sales_price == 0:
         return 0
     return (realized_gross_profit / gross_sales_price) * 100
@@ -166,13 +192,13 @@ def process_data(df):
                 'Row Number': idx + 2
             })
     
-    # Convert numeric columns
+    # Convert numeric columns with safe handling
     numeric_columns = ['Acres', 'Cost Basis', 'Gross Sales Price', 'Closing Costs']
     for col in numeric_columns:
         if col in df_processed.columns:
-            df_processed[col] = pd.to_numeric(df_processed[col], errors='coerce').fillna(0)
+            df_processed[col] = df_processed[col].apply(lambda x: safe_numeric_value(x, 0))
     
-    # Calculate derived fields
+    # Calculate derived fields with safe handling
     df_processed['Days Until Sold'] = df_processed.apply(
         lambda row: calculate_days_until_sold(row.get('Date Purchased'), row.get('Date Sold')), axis=1
     )
@@ -209,11 +235,14 @@ def process_data(df):
     return df_processed, error_df, total_records
 
 def create_excel_download(df, filename):
-    """Create Excel file for download"""
+    """Create Excel file for download with proper NaN/INF handling"""
     output = BytesIO()
     
-    # Create a workbook and worksheet
-    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+    # Create a workbook with NaN/INF handling enabled
+    workbook = xlsxwriter.Workbook(output, {
+        'in_memory': True,
+        'nan_inf_to_errors': True  # This option handles NaN/INF values
+    })
     worksheet = workbook.add_worksheet('Sold Properties')
     
     # Define formats
@@ -282,112 +311,112 @@ def create_excel_download(df, filename):
     for col, header in enumerate(headers):
         worksheet.write(0, col, header, header_format)
     
-    # Write data
+    # Write data with safe value handling
     for row, (_, data) in enumerate(df.iterrows(), 1):
         # Property Name - highlight if empty
-        prop_name = data.get('Property Name', '')
-        if prop_name == '' or pd.isna(prop_name):
-            worksheet.write(row, 0, prop_name, text_highlight_format)
+        prop_name = str(data.get('Property Name', ''))
+        if prop_name == '' or prop_name == 'nan':
+            worksheet.write(row, 0, '', text_highlight_format)
         else:
             worksheet.write(row, 0, prop_name)
         
         # Owner - highlight if empty
-        owner = data.get('Owner', '')
-        if owner == '' or pd.isna(owner):
-            worksheet.write(row, 1, owner, text_highlight_format)
+        owner = str(data.get('Owner', ''))
+        if owner == '' or owner == 'nan':
+            worksheet.write(row, 1, '', text_highlight_format)
         else:
             worksheet.write(row, 1, owner)
         
         # State - highlight if empty
-        state = data.get('State', '')
-        if state == '' or pd.isna(state):
-            worksheet.write(row, 2, state, text_highlight_format)
+        state = str(data.get('State', ''))
+        if state == '' or state == 'nan':
+            worksheet.write(row, 2, '', text_highlight_format)
         else:
             worksheet.write(row, 2, state)
         
         # County - highlight if empty
-        county = data.get('County', '')
-        if county == '' or pd.isna(county):
-            worksheet.write(row, 3, county, text_highlight_format)
+        county = str(data.get('County', ''))
+        if county == '' or county == 'nan':
+            worksheet.write(row, 3, '', text_highlight_format)
         else:
             worksheet.write(row, 3, county)
         
-        # Handle Acres with null/inf check and highlighting
-        acres = data.get('Acres', 0)
-        if pd.notna(acres) and np.isfinite(acres) and acres != 0:
-            worksheet.write(row, 4, acres, number_format)
-        else:
+        # Handle Acres with safe numeric conversion
+        acres = safe_numeric_value(data.get('Acres', 0))
+        if acres == 0:
             worksheet.write(row, 4, 0, number_highlight_format)
-        
-        # Handle Cost Basis with null/inf check and highlighting
-        cost_basis = data.get('Cost Basis', 0)
-        if pd.notna(cost_basis) and np.isfinite(cost_basis) and cost_basis != 0:
-            worksheet.write(row, 5, cost_basis, currency_format)
         else:
+            worksheet.write(row, 4, acres, number_format)
+        
+        # Handle Cost Basis with safe numeric conversion
+        cost_basis = safe_numeric_value(data.get('Cost Basis', 0))
+        if cost_basis == 0:
             worksheet.write(row, 5, 0, currency_highlight_format)
+        else:
+            worksheet.write(row, 5, cost_basis, currency_format)
         
         # Handle Date Purchased with null check and highlighting
         date_purchased = data.get('Date Purchased')
-        if pd.notna(date_purchased) and date_purchased != '':
-            worksheet.write(row, 6, date_purchased, date_format)
-        else:
+        if pd.isna(date_purchased) or date_purchased == '':
             worksheet.write(row, 6, '', date_highlight_format)
+        else:
+            worksheet.write(row, 6, date_purchased, date_format)
             
         # Opportunity Status - highlight if empty
-        opp_status = data.get('Opportunity Status', '')
-        if opp_status == '' or pd.isna(opp_status):
-            worksheet.write(row, 7, opp_status, text_highlight_format)
+        opp_status = str(data.get('Opportunity Status', ''))
+        if opp_status == '' or opp_status == 'nan':
+            worksheet.write(row, 7, '', text_highlight_format)
         else:
             worksheet.write(row, 7, opp_status)
         
-        # Handle Days Until Sold with null/inf check and highlighting
-        days_sold = data.get('Days Until Sold', 0)
-        if pd.notna(days_sold) and np.isfinite(days_sold) and days_sold != 0:
-            worksheet.write(row, 8, int(days_sold), number_format)
-        else:
+        # Handle Days Until Sold with safe conversion
+        days_sold = safe_int_value(data.get('Days Until Sold', 0))
+        if days_sold == 0:
             worksheet.write(row, 8, 0, number_highlight_format)
+        else:
+            worksheet.write(row, 8, days_sold, number_format)
         
         # Handle Date Sold with null check and highlighting
         date_sold = data.get('Date Sold')
-        if pd.notna(date_sold) and date_sold != '':
-            worksheet.write(row, 9, date_sold, date_format)
-        else:
+        if pd.isna(date_sold) or date_sold == '':
             worksheet.write(row, 9, '', date_highlight_format)
-        
-        # Handle Gross Sales Price with null/inf check and highlighting
-        gross_sales = data.get('Gross Sales Price', 0)
-        if pd.notna(gross_sales) and np.isfinite(gross_sales) and gross_sales != 0:
-            worksheet.write(row, 10, gross_sales, currency_format)
         else:
+            worksheet.write(row, 9, date_sold, date_format)
+        
+        # Handle Gross Sales Price with safe numeric conversion
+        gross_sales = safe_numeric_value(data.get('Gross Sales Price', 0))
+        if gross_sales == 0:
             worksheet.write(row, 10, 0, currency_highlight_format)
-        
-        # Handle Closing Costs with null/inf check and highlighting
-        closing_costs = data.get('Closing Costs', 0)
-        if pd.notna(closing_costs) and np.isfinite(closing_costs) and closing_costs != 0:
-            worksheet.write(row, 11, closing_costs, currency_format)
         else:
+            worksheet.write(row, 10, gross_sales, currency_format)
+        
+        # Handle Closing Costs with safe numeric conversion
+        closing_costs = safe_numeric_value(data.get('Closing Costs', 0))
+        if closing_costs == 0:
             worksheet.write(row, 11, 0, currency_highlight_format)
-        
-        # Handle Realized Gross Profit with null/inf check and highlighting
-        gross_profit = data.get('Realized Gross Profit', 0)
-        if pd.notna(gross_profit) and np.isfinite(gross_profit) and gross_profit != 0:
-            worksheet.write(row, 12, gross_profit, currency_format)
         else:
+            worksheet.write(row, 11, closing_costs, currency_format)
+        
+        # Handle Realized Gross Profit with safe numeric conversion
+        gross_profit = safe_numeric_value(data.get('Realized Gross Profit', 0))
+        if gross_profit == 0:
             worksheet.write(row, 12, 0, currency_highlight_format)
-        
-        # Handle Realized Markup with null/inf check and highlighting
-        markup = data.get('Realized Markup', 0)
-        if pd.notna(markup) and np.isfinite(markup) and markup != 0:
-            worksheet.write(row, 13, markup / 100, percentage_format)
         else:
+            worksheet.write(row, 12, gross_profit, currency_format)
+        
+        # Handle Realized Markup with safe numeric conversion
+        markup = safe_numeric_value(data.get('Realized Markup', 0))
+        if markup == 0:
             worksheet.write(row, 13, 0, percentage_highlight_format)
-        
-        # Handle Realized Margin with null/inf check and highlighting
-        margin = data.get('Realized Margin', 0)
-        if pd.notna(margin) and np.isfinite(margin) and margin != 0:
-            worksheet.write(row, 14, margin / 100, percentage_format)
         else:
+            worksheet.write(row, 13, markup / 100, percentage_format)
+        
+        # Handle Realized Margin with safe numeric conversion
+        margin = safe_numeric_value(data.get('Realized Margin', 0))
+        if margin == 0:
             worksheet.write(row, 14, 0, percentage_highlight_format)
+        else:
+            worksheet.write(row, 14, margin / 100, percentage_format)
     
     # Auto-adjust column widths
     for col in range(len(headers)):
@@ -402,8 +431,11 @@ def create_error_report_excel(error_df, total_records, processed_records, filena
     """Create Excel error report for records that didn't import"""
     output = BytesIO()
     
-    # Create a workbook and worksheet
-    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+    # Create a workbook with NaN/INF handling enabled
+    workbook = xlsxwriter.Workbook(output, {
+        'in_memory': True,
+        'nan_inf_to_errors': True
+    })
     
     # Summary worksheet
     summary_worksheet = workbook.add_worksheet('Import Summary')
@@ -477,14 +509,14 @@ def create_error_report_excel(error_df, total_records, processed_records, filena
         for col, header in enumerate(headers):
             error_worksheet.write(0, col, header, header_format)
         
-        # Write error data
+        # Write error data with safe handling
         for row, (_, data) in enumerate(error_df.iterrows(), 1):
-            error_worksheet.write(row, 0, data.get('Row Number', ''), error_format)
-            error_worksheet.write(row, 1, data.get('Property Name', ''), error_format)
-            error_worksheet.write(row, 2, data.get('Owner', ''), error_format)
-            error_worksheet.write(row, 3, data.get('Opportunity Status', ''), error_format)
-            error_worksheet.write(row, 4, data.get('Error Type', ''), error_format)
-            error_worksheet.write(row, 5, data.get('Error Detail', ''), error_format)
+            error_worksheet.write(row, 0, safe_int_value(data.get('Row Number', 0)), error_format)
+            error_worksheet.write(row, 1, str(data.get('Property Name', '')), error_format)
+            error_worksheet.write(row, 2, str(data.get('Owner', '')), error_format)
+            error_worksheet.write(row, 3, str(data.get('Opportunity Status', '')), error_format)
+            error_worksheet.write(row, 4, str(data.get('Error Type', '')), error_format)
+            error_worksheet.write(row, 5, str(data.get('Error Detail', '')), error_format)
             error_worksheet.write(row, 6, str(data.get('Date Sold', '')), error_format)
         
         # Set column widths for error details
@@ -593,22 +625,23 @@ def create_pdf_download(df_dict, filename):
                 prop_name_para = Paragraph(prop_name, cell_style)
             else:
                 prop_name_para = prop_name
-                
+            
+            # Safe formatting for all values
             formatted_row = [
                 prop_name_para,  # Property name with wrapping
                 str(row.get('Owner', ''))[:18],  # Allow longer owner names
                 str(row.get('State', '')),
                 str(row.get('County', ''))[:15],  # Allow longer county names
-                f"{row.get('Acres', 0):.1f}",
-                f"${row.get('Cost Basis', 0):,.0f}",
+                f"{safe_numeric_value(row.get('Acres', 0)):.1f}",
+                f"${safe_numeric_value(row.get('Cost Basis', 0)):,.0f}",
                 row.get('Date Purchased').strftime('%m/%d/%Y') if pd.notna(row.get('Date Purchased')) else '',
-                f"{row.get('Days Until Sold', 0):.0f}" if pd.notna(row.get('Days Until Sold')) else '',
+                f"{safe_int_value(row.get('Days Until Sold', 0))}",
                 row.get('Date Sold').strftime('%m/%d/%Y') if pd.notna(row.get('Date Sold')) else '',
-                f"${row.get('Gross Sales Price', 0):,.0f}",
-                f"${row.get('Closing Costs', 0):,.0f}",
-                f"${row.get('Realized Gross Profit', 0):,.0f}",
-                f"{row.get('Realized Markup', 0):.0f}%",
-                f"{row.get('Realized Margin', 0):.0f}%"
+                f"${safe_numeric_value(row.get('Gross Sales Price', 0)):,.0f}",
+                f"${safe_numeric_value(row.get('Closing Costs', 0)):,.0f}",
+                f"${safe_numeric_value(row.get('Realized Gross Profit', 0)):,.0f}",
+                f"{safe_numeric_value(row.get('Realized Markup', 0)):.0f}%",
+                f"{safe_numeric_value(row.get('Realized Margin', 0)):.0f}%"
             ]
             table_data.append(formatted_row)
         
@@ -731,37 +764,45 @@ def create_pdf_download(df_dict, filename):
         return None
 
 def format_currency(value):
-    """Format value as currency"""
-    if pd.isna(value):
-        return "$0"
-    return f"${value:,.0f}"
+    """Format value as currency with safe handling"""
+    safe_value = safe_numeric_value(value, 0)
+    return f"${safe_value:,.0f}"
 
 def format_percentage(value):
-    """Format value as percentage"""
-    if pd.isna(value):
-        return "0%"
-    return f"{value:.0f}%"
+    """Format value as percentage with safe handling"""
+    safe_value = safe_numeric_value(value, 0)
+    return f"{safe_value:.0f}%"
 
 def create_summary_stats(df):
-    """Create summary statistics"""
+    """Create summary statistics with safe numeric handling"""
     if len(df) == 0:
         return {}
     
+    # Safe aggregations
+    cost_basis_sum = df['Cost Basis'].apply(lambda x: safe_numeric_value(x, 0)).sum()
+    gross_sales_sum = df['Gross Sales Price'].apply(lambda x: safe_numeric_value(x, 0)).sum()
+    gross_profit_sum = df['Realized Gross Profit'].apply(lambda x: safe_numeric_value(x, 0)).sum()
+    
+    # Safe statistical calculations
+    markup_values = df['Realized Markup'].apply(lambda x: safe_numeric_value(x, 0))
+    margin_values = df['Realized Margin'].apply(lambda x: safe_numeric_value(x, 0))
+    days_values = df['Days Until Sold'].apply(lambda x: safe_numeric_value(x, 0))
+    
     return {
         'total_properties': len(df),
-        'total_cost_basis': df['Cost Basis'].sum(),
-        'total_gross_sales': df['Gross Sales Price'].sum(),
-        'total_gross_profit': df['Realized Gross Profit'].sum(),
-        'average_markup': df['Realized Markup'].mean(),
-        'median_markup': df['Realized Markup'].median(),
-        'max_markup': df['Realized Markup'].max(),
-        'min_markup': df['Realized Markup'].min(),
-        'average_margin': df['Realized Margin'].mean(),
-        'median_margin': df['Realized Margin'].median(),
-        'average_days': df['Days Until Sold'].mean(),
-        'median_days': df['Days Until Sold'].median(),
-        'max_days': df['Days Until Sold'].max(),
-        'min_days': df['Days Until Sold'].min()
+        'total_cost_basis': cost_basis_sum,
+        'total_gross_sales': gross_sales_sum,
+        'total_gross_profit': gross_profit_sum,
+        'average_markup': markup_values.mean(),
+        'median_markup': markup_values.median(),
+        'max_markup': markup_values.max(),
+        'min_markup': markup_values.min(),
+        'average_margin': margin_values.mean(),
+        'median_margin': margin_values.median(),
+        'average_days': days_values.mean(),
+        'median_days': days_values.median(),
+        'max_days': days_values.max(),
+        'min_days': days_values.min()
     }
 
 def main():
@@ -931,7 +972,7 @@ def main():
                 
                 display_df = quarter_data[display_columns].copy()
                 
-                # Format for display
+                # Format for display with safe handling
                 if 'Cost Basis' in display_df.columns:
                     display_df['Cost Basis'] = display_df['Cost Basis'].apply(format_currency)
                 if 'Gross Sales Price' in display_df.columns:
@@ -975,13 +1016,13 @@ def main():
                 # Additional row for days to sell
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("Average Days to Sell", f"{stats['average_days']:.0f}")
+                    st.metric("Average Days to Sell", f"{safe_numeric_value(stats['average_days']):.0f}")
                 with col2:
-                    st.metric("Median Days to Sell", f"{stats['median_days']:.0f}")
+                    st.metric("Median Days to Sell", f"{safe_numeric_value(stats['median_days']):.0f}")
                 with col3:
-                    st.metric("Max Days to Sell", f"{stats['max_days']:.0f}")
+                    st.metric("Max Days to Sell", f"{safe_numeric_value(stats['max_days']):.0f}")
                 with col4:
-                    st.metric("Min Days to Sell", f"{stats['min_days']:.0f}")
+                    st.metric("Min Days to Sell", f"{safe_numeric_value(stats['min_days']):.0f}")
                 
                 st.divider()
             
@@ -1007,13 +1048,13 @@ def main():
                 # Additional row for days to sell
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("Average Days to Sell", f"{overall_stats['average_days']:.0f}")
+                    st.metric("Average Days to Sell", f"{safe_numeric_value(overall_stats['average_days']):.0f}")
                 with col2:
-                    st.metric("Max Days to Sell", f"{overall_stats['max_days']:.0f}")
+                    st.metric("Max Days to Sell", f"{safe_numeric_value(overall_stats['max_days']):.0f}")
                 with col3:
-                    st.metric("Min Days to Sell", f"{overall_stats['min_days']:.0f}")
+                    st.metric("Min Days to Sell", f"{safe_numeric_value(overall_stats['min_days']):.0f}")
                 with col4:
-                    st.metric("Median Days to Sell", f"{overall_stats['median_days']:.0f}")
+                    st.metric("Median Days to Sell", f"{safe_numeric_value(overall_stats['median_days']):.0f}")
             
             # Download section
             st.subheader("📥 Download Reports")
