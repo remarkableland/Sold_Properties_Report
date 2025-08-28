@@ -757,12 +757,13 @@ def create_pdf_download(df_dict, filename):
         
         overall_summary_data = [
             ['Metric', 'Value', 'Metric', 'Value'],
-            ['Total Properties', f"{overall_stats['total_properties']}", 'Total Cost Basis', f"${overall_stats['total_cost_basis']:,.0f}"],
-            ['Total Gross Sales', f"${overall_stats['total_gross_sales']:,.0f}", 'Total Closing Costs', f"${overall_stats['total_closing_costs']:,.0f}"],
-            ['Total Gross Profit', f"${overall_stats['total_gross_profit']:,.0f}", 'Average Markup', f"{overall_stats['average_markup']:.0f}%"],
-            ['Max Markup', f"{overall_stats['max_markup']:.0f}%", 'Average Margin', f"{overall_stats['average_margin']:.0f}%"],
-            ['Median Margin', f"{overall_stats['median_margin']:.0f}%", 'Average Days to Sell', f"{overall_stats['average_days']:.0f}"],
-            ['Max Days to Sell', f"{overall_stats['max_days']:.0f}", '', '']
+            ['Total Properties', f"{overall_stats['total_properties']}", '', ''],
+            ['Total Gross Sales', f"${overall_stats['total_gross_sales']:,.0f}", 'Total Cost Basis', f"${overall_stats['total_cost_basis']:,.0f}"],
+            ['Total Closing Costs', f"${overall_stats['total_closing_costs']:,.0f}", 'Total Gross Profit', f"${overall_stats['total_gross_profit']:,.0f}"],
+            ['Average Markup', f"{overall_stats['average_markup']:.0f}%", 'Median Markup', f"{overall_stats['median_markup']:.0f}%"],
+            ['Average Margin', f"{overall_stats['average_margin']:.0f}%", 'Median Margin', f"{overall_stats['median_margin']:.0f}%"],
+            ['Average Days to Sell', f"{overall_stats['average_days']:.0f}", 'Median Days to Sell', f"{overall_stats['median_days']:.0f}"],
+            ['Max Days to Sell', f"{overall_stats['max_days']:.0f}", 'Min Days to Sell', f"{overall_stats['min_days']:.0f}"]
         ]
         
         overall_summary_table = Table(overall_summary_data, colWidths=[1.5*inch, 1.5*inch, 1.5*inch, 1.5*inch])
@@ -1211,4 +1212,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
