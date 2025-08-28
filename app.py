@@ -758,10 +758,11 @@ def create_pdf_download(df_dict, filename):
         overall_summary_data = [
             ['Metric', 'Value', 'Metric', 'Value'],
             ['Total Properties', f"{overall_stats['total_properties']}", 'Total Cost Basis', f"${overall_stats['total_cost_basis']:,.0f}"],
-            ['Total Gross Sales', f"${overall_stats['total_gross_sales']:,.0f}", 'Total Gross Profit', f"${overall_stats['total_gross_profit']:,.0f}"],
-            ['Average Markup', f"{overall_stats['average_markup']:.0f}%", 'Max Markup', f"{overall_stats['max_markup']:.0f}%"],
-            ['Average Margin', f"{overall_stats['average_margin']:.0f}%", 'Median Margin', f"{overall_stats['median_margin']:.0f}%"],
-            ['Average Days to Sell', f"{overall_stats['average_days']:.0f}", 'Max Days to Sell', f"{overall_stats['max_days']:.0f}"]
+            ['Total Gross Sales', f"${overall_stats['total_gross_sales']:,.0f}", 'Total Closing Costs', f"${overall_stats['total_closing_costs']:,.0f}"],
+            ['Total Gross Profit', f"${overall_stats['total_gross_profit']:,.0f}", 'Average Markup', f"{overall_stats['average_markup']:.0f}%"],
+            ['Max Markup', f"{overall_stats['max_markup']:.0f}%", 'Average Margin', f"{overall_stats['average_margin']:.0f}%"],
+            ['Median Margin', f"{overall_stats['median_margin']:.0f}%", 'Average Days to Sell', f"{overall_stats['average_days']:.0f}"],
+            ['Max Days to Sell', f"{overall_stats['max_days']:.0f}", '', '']
         ]
         
         overall_summary_table = Table(overall_summary_data, colWidths=[1.5*inch, 1.5*inch, 1.5*inch, 1.5*inch])
@@ -812,6 +813,7 @@ def create_summary_stats(df):
     # Safe aggregations - handle both original and display column names
     cost_basis_col = 'Cost Basis' if 'Cost Basis' in df.columns else 'custom.Asset_Cost_Basis'
     gross_sales_col = 'Gross Sales Price' if 'Gross Sales Price' in df.columns else 'custom.Asset_Gross_Sales_Price'
+    closing_costs_col = 'Closing Costs' if 'Closing Costs' in df.columns else 'custom.Asset_Closing_Costs'
     gross_profit_col = 'Realized Gross Profit' if 'Realized Gross Profit' in df.columns else 'Realized_Gross_Profit'
     markup_col = 'Realized Markup' if 'Realized Markup' in df.columns else 'Realized_Markup'
     margin_col = 'Realized Margin' if 'Realized Margin' in df.columns else 'Realized_Margin'
@@ -819,6 +821,7 @@ def create_summary_stats(df):
     
     cost_basis_sum = df[cost_basis_col].apply(lambda x: safe_numeric_value(x, 0)).sum()
     gross_sales_sum = df[gross_sales_col].apply(lambda x: safe_numeric_value(x, 0)).sum()
+    closing_costs_sum = df[closing_costs_col].apply(lambda x: safe_numeric_value(x, 0)).sum()
     gross_profit_sum = df[gross_profit_col].apply(lambda x: safe_numeric_value(x, 0)).sum()
     
     # Safe statistical calculations
@@ -830,6 +833,7 @@ def create_summary_stats(df):
         'total_properties': len(df),
         'total_cost_basis': cost_basis_sum,
         'total_gross_sales': gross_sales_sum,
+        'total_closing_costs': closing_costs_sum,
         'total_gross_profit': gross_profit_sum,
         'average_markup': markup_values.mean(),
         'median_markup': markup_values.median(),
@@ -1051,24 +1055,35 @@ def main():
                     st.metric("Total Cost Basis", format_currency(stats['total_cost_basis']))
                 with col2:
                     st.metric("Total Gross Sales", format_currency(stats['total_gross_sales']))
-                    st.metric("Total Gross Profit", format_currency(stats['total_gross_profit']))
+                    st.metric("Total Closing Costs", format_currency(stats['total_closing_costs']))
                 with col3:
+                    st.metric("Total Gross Profit", format_currency(stats['total_gross_profit']))
                     st.metric("Average Markup", format_percentage(stats['average_markup']))
-                    st.metric("Median Markup", format_percentage(stats['median_markup']))
                 with col4:
+                    st.metric("Median Markup", format_percentage(stats['median_markup']))
                     st.metric("Average Margin", format_percentage(stats['average_margin']))
-                    st.metric("Median Margin", format_percentage(stats['median_margin']))
                 
-                # Additional row for days to sell
+                # Additional row for margin and days to sell
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("Average Days to Sell", f"{safe_numeric_value(stats['average_days']):.0f}")
+                    st.metric("Median Margin", format_percentage(stats['median_margin']))
                 with col2:
-                    st.metric("Median Days to Sell", f"{safe_numeric_value(stats['median_days']):.0f}")
+                    st.metric("Average Days to Sell", f"{safe_numeric_value(stats['average_days']):.0f}")
                 with col3:
-                    st.metric("Max Days to Sell", f"{safe_numeric_value(stats['max_days']):.0f}")
+                    st.metric("Median Days to Sell", f"{safe_numeric_value(stats['median_days']):.0f}")
                 with col4:
+                    st.metric("Max Days to Sell", f"{safe_numeric_value(stats['max_days']):.0f}")
+                
+                # Third row for remaining metrics
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
                     st.metric("Min Days to Sell", f"{safe_numeric_value(stats['min_days']):.0f}")
+                with col2:
+                    pass  # Empty for alignment
+                with col3:
+                    pass  # Empty for alignment
+                with col4:
+                    pass  # Empty for alignment
                 
                 st.divider()
             
@@ -1083,24 +1098,35 @@ def main():
                     st.metric("Total Cost Basis", format_currency(overall_stats['total_cost_basis']))
                 with col2:
                     st.metric("Total Gross Sales", format_currency(overall_stats['total_gross_sales']))
-                    st.metric("Total Gross Profit", format_currency(overall_stats['total_gross_profit']))
+                    st.metric("Total Closing Costs", format_currency(overall_stats['total_closing_costs']))
                 with col3:
+                    st.metric("Total Gross Profit", format_currency(overall_stats['total_gross_profit']))
                     st.metric("Average Markup", format_percentage(overall_stats['average_markup']))
-                    st.metric("Max Markup", format_percentage(overall_stats['max_markup']))
                 with col4:
+                    st.metric("Max Markup", format_percentage(overall_stats['max_markup']))
                     st.metric("Average Margin", format_percentage(overall_stats['average_margin']))
-                    st.metric("Median Margin", format_percentage(overall_stats['median_margin']))
                 
-                # Additional row for days to sell
+                # Additional row for margin and days to sell
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.metric("Average Days to Sell", f"{safe_numeric_value(overall_stats['average_days']):.0f}")
+                    st.metric("Median Margin", format_percentage(overall_stats['median_margin']))
                 with col2:
-                    st.metric("Max Days to Sell", f"{safe_numeric_value(overall_stats['max_days']):.0f}")
+                    st.metric("Average Days to Sell", f"{safe_numeric_value(overall_stats['average_days']):.0f}")
                 with col3:
-                    st.metric("Min Days to Sell", f"{safe_numeric_value(overall_stats['min_days']):.0f}")
+                    st.metric("Max Days to Sell", f"{safe_numeric_value(overall_stats['max_days']):.0f}")
                 with col4:
+                    st.metric("Min Days to Sell", f"{safe_numeric_value(overall_stats['min_days']):.0f}")
+                
+                # Third row for remaining metrics
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
                     st.metric("Median Days to Sell", f"{safe_numeric_value(overall_stats['median_days']):.0f}")
+                with col2:
+                    pass  # Empty for alignment
+                with col3:
+                    pass  # Empty for alignment
+                with col4:
+                    pass  # Empty for alignment
             
             # Download section
             st.subheader("Download Reports")
