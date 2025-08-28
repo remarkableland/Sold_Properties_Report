@@ -215,7 +215,7 @@ def create_pdf_download(df_dict, filename):
     )
     
     # Title
-    story.append(Paragraph("Sold Properties Report", title_style))
+    story.append(Paragraph("Remarkable Land LLC - Sold Properties Report", title_style))
     story.append(Paragraph(f"Generated: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}", summary_style))
     story.append(Spacer(1, 12))
     
