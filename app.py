@@ -5,6 +5,16 @@ from datetime import datetime, timedelta
 from io import BytesIO
 import xlsxwriter
 
+try:
+    from reportlab.lib.pagesizes import letter, legal, landscape
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.lib import colors
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+
 st.set_page_config(
     page_title="Sold Property Report",
     page_icon="📊",
@@ -126,17 +136,217 @@ def process_data(df):
     
     return df_processed
 
+def create_pdf_download(df_dict, filename):
+    """Create PDF file organized by quarter"""
+    if not REPORTLAB_AVAILABLE:
+        st.error("PDF generation requires reportlab. Please install it: pip install reportlab")
+        return None
+
+    buffer = BytesIO()
+    
+    # Create the PDF document with landscape legal page size
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(legal),
+                          topMargin=0.5*inch, bottomMargin=0.5*inch,
+                          leftMargin=0.5*inch, rightMargin=0.5*inch)
+    
+    story = []
+    
+    # Get styles
+    styles = getSampleStyleSheet()
+    
+    # Custom styles
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=16,
+        spaceAfter=12,
+        alignment=1,  # Center alignment
+        textColor=colors.darkblue
+    )
+    
+    quarter_style = ParagraphStyle(
+        'QuarterTitle',
+        parent=styles['Heading2'],
+        fontSize=14,
+        spaceAfter=8,
+        spaceBefore=12,
+        textColor=colors.darkblue
+    )
+    
+    summary_style = ParagraphStyle(
+        'SummaryStyle',
+        parent=styles['Normal'],
+        fontSize=10,
+        spaceAfter=6
+    )
+    
+    disclaimer_style = ParagraphStyle(
+        'DisclaimerStyle',
+        parent=styles['Normal'],
+        fontSize=8,
+        textColor=colors.grey,
+        alignment=1,  # Center alignment
+        spaceAfter=12
+    )
+    
+    # Title
+    story.append(Paragraph("Sold Properties Report", title_style))
+    story.append(Paragraph(f"Generated: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}", summary_style))
+    story.append(Spacer(1, 12))
+    
+    # Process each quarter
+    for quarter in sorted(df_dict.keys()):
+        quarter_data = df_dict[quarter]
+        
+        if len(quarter_data) == 0:
+            continue
+            
+        # Quarter title
+        story.append(Paragraph(f"{quarter}", quarter_style))
+        
+        # Prepare table data
+        table_headers = ['Property Name', 'Owner', 'State', 'County', 'Acres', 'Cost Basis',
+                        'Date Purchased', 'Days Until Sold', 'Date Sold', 'Gross Sales Price',
+                        'Closing Costs', 'Realized Gross Profit', 'Realized Markup', 'Realized Margin']
+        
+        table_data = [table_headers]
+        
+        for _, row in quarter_data.iterrows():
+            formatted_row = [
+                str(row.get('Property Name', ''))[:25],  # Truncate long names
+                str(row.get('Owner', ''))[:15],
+                str(row.get('State', '')),
+                str(row.get('County', ''))[:12],
+                f"{row.get('Acres', 0):.1f}",
+                f"${row.get('Cost Basis', 0):,.0f}",
+                row.get('Date Purchased').strftime('%m/%d/%Y') if pd.notna(row.get('Date Purchased')) else '',
+                f"{row.get('Days Until Sold', 0):.0f}" if pd.notna(row.get('Days Until Sold')) else '',
+                row.get('Date Sold').strftime('%m/%d/%Y') if pd.notna(row.get('Date Sold')) else '',
+                f"${row.get('Gross Sales Price', 0):,.0f}",
+                f"${row.get('Closing Costs', 0):,.0f}",
+                f"${row.get('Realized Gross Profit', 0):,.0f}",
+                f"{row.get('Realized Markup', 0):.0f}%",
+                f"{row.get('Realized Margin', 0):.0f}%"
+            ]
+            table_data.append(formatted_row)
+        
+        # Create table with appropriate column widths for landscape legal
+        col_widths = [1.2*inch, 0.8*inch, 0.4*inch, 0.7*inch, 0.4*inch, 0.7*inch, 
+                     0.7*inch, 0.4*inch, 0.7*inch, 0.8*inch, 0.6*inch, 0.8*inch, 0.5*inch, 0.5*inch]
+        
+        table = Table(table_data, colWidths=col_widths, repeatRows=1)
+        
+        # Table style
+        table.setStyle(TableStyle([
+            # Header formatting
+            ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+            
+            # Data formatting
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 7),
+            ('ALIGN', (0, 1), (1, -1), 'LEFT'),  # Property Name and Owner left-aligned
+            ('ALIGN', (4, 1), (-1, -1), 'RIGHT'),  # Numbers right-aligned
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            
+            # Alternating row colors
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey]),
+        ]))
+        
+        story.append(table)
+        story.append(Spacer(1, 12))
+        
+        # Quarter summary statistics
+        stats = create_summary_stats(quarter_data)
+        
+        summary_data = [
+            ['Metric', 'Value', 'Metric', 'Value'],
+            ['Properties Sold', f"{stats['total_properties']}", 'Total Cost Basis', f"${stats['total_cost_basis']:,.0f}"],
+            ['Total Gross Sales', f"${stats['total_gross_sales']:,.0f}", 'Total Gross Profit', f"${stats['total_gross_profit']:,.0f}"],
+            ['Average Markup', f"{stats['average_markup']:.0f}%", 'Median Markup', f"{stats['median_markup']:.0f}%"],
+            ['Average Margin', f"{stats['average_margin']:.0f}%", 'Median Margin', f"{stats['median_margin']:.0f}%"],
+            ['Average Days to Sell', f"{stats['average_days']:.0f}", 'Median Days to Sell', f"{stats['median_days']:.0f}"]
+        ]
+        
+        summary_table = Table(summary_data, colWidths=[1.5*inch, 1.5*inch, 1.5*inch, 1.5*inch])
+        summary_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 9),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('ALIGN', (1, 1), (1, -1), 'RIGHT'),
+            ('ALIGN', (3, 1), (3, -1), 'RIGHT'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        
+        story.append(summary_table)
+        
+        # Add page break between quarters (except for the last one)
+        if quarter != sorted(df_dict.keys())[-1]:
+            story.append(PageBreak())
+        else:
+            story.append(Spacer(1, 12))
+    
+    # Overall summary if multiple quarters
+    if len(df_dict) > 1:
+        # Combine all data for overall summary
+        all_data = pd.concat(df_dict.values(), ignore_index=True)
+        overall_stats = create_summary_stats(all_data)
+        
+        story.append(Paragraph("Overall Summary", quarter_style))
+        
+        overall_summary_data = [
+            ['Metric', 'Value', 'Metric', 'Value'],
+            ['Total Properties', f"{overall_stats['total_properties']}", 'Total Cost Basis', f"${overall_stats['total_cost_basis']:,.0f}"],
+            ['Total Gross Sales', f"${overall_stats['total_gross_sales']:,.0f}", 'Total Gross Profit', f"${overall_stats['total_gross_profit']:,.0f}"],
+            ['Average Markup', f"{overall_stats['average_markup']:.0f}%", 'Max Markup', f"{overall_stats['max_markup']:.0f}%"],
+            ['Average Margin', f"{overall_stats['average_margin']:.0f}%", 'Median Margin', f"{overall_stats['median_margin']:.0f}%"],
+            ['Average Days to Sell', f"{overall_stats['average_days']:.0f}", 'Max Days to Sell', f"{overall_stats['max_days']:.0f}"]
+        ]
+        
+        overall_summary_table = Table(overall_summary_data, colWidths=[1.5*inch, 1.5*inch, 1.5*inch, 1.5*inch])
+        overall_summary_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.darkgreen),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 9),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('ALIGN', (1, 1), (1, -1), 'RIGHT'),
+            ('ALIGN', (3, 1), (3, -1), 'RIGHT'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        
+        story.append(overall_summary_table)
+        story.append(Spacer(1, 12))
+    
+    # Disclaimer
+    story.append(Paragraph("Disclaimer: This data is sourced from our CRM and not our accounting software, based on then-available data. Final accounting data and results may vary slightly.", disclaimer_style))
+    
+    # Build PDF
+    try:
+        doc.build(story)
+        buffer.seek(0)
+        return buffer
+    except Exception as e:
+        st.error(f"Error generating PDF: {str(e)}")
+        return None
+
 def format_currency(value):
     """Format value as currency"""
     if pd.isna(value):
         return "$0"
     return f"${value:,.0f}"
-
-def format_percentage(value):
-    """Format value as percentage"""
-    if pd.isna(value):
-        return "0%"
-    return f"{value:.0f}%"
 
 def create_summary_stats(df):
     """Create summary statistics"""
@@ -574,22 +784,49 @@ def main():
                     st.metric("Median Days to Sell", f"{overall_stats['median_days']:.0f}")
             
             # Download section
-            st.subheader("📥 Download Report")
+            st.subheader("📥 Download Reports")
             
-            # Generate filename
+            # Prepare data for PDF (organized by quarter)
+            quarter_data_dict = {}
+            for quarter in selected_quarters:
+                quarter_data_dict[quarter] = filtered_df[filtered_df['Quarter_Year'] == quarter].copy()
+            
+            # Generate filenames
             quarters_str = "_".join(selected_quarters).replace(" ", "")
             current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"sold_properties_{quarters_str}_{current_time}.xlsx"
+            excel_filename = f"sold_properties_{quarters_str}_{current_time}.xlsx"
+            pdf_filename = f"sold_properties_{quarters_str}_{current_time}.pdf"
             
-            # Create Excel file
-            excel_file = create_excel_download(filtered_df, filename)
+            col1, col2 = st.columns(2)
             
-            st.download_button(
-                label="📄 Download Excel Report",
-                data=excel_file.getvalue(),
-                file_name=filename,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            with col1:
+                st.write("**Excel Report**")
+                # Create Excel file
+                excel_file = create_excel_download(filtered_df, excel_filename)
+                
+                st.download_button(
+                    label="📄 Download Excel Report",
+                    data=excel_file.getvalue(),
+                    file_name=excel_filename,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            
+            with col2:
+                st.write("**PDF Report (Landscape Legal)**")
+                if REPORTLAB_AVAILABLE:
+                    # Create PDF file
+                    pdf_file = create_pdf_download(quarter_data_dict, pdf_filename)
+                    
+                    if pdf_file:
+                        st.download_button(
+                            label="📋 Download PDF Report",
+                            data=pdf_file.getvalue(),
+                            file_name=pdf_filename,
+                            mime="application/pdf"
+                        )
+                else:
+                    st.warning("PDF generation requires reportlab. Run: pip install reportlab")
+                    st.info("Excel download is still available above.")
             
             # Disclaimer
             st.markdown("---")
