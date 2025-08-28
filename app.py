@@ -195,9 +195,12 @@ def create_pdf_download(df_dict, filename):
     frame = Frame(0.5*inch, 0.8*inch, page_width - 1*inch, page_height - 1.3*inch, 
                   leftPadding=0, bottomPadding=0, rightPadding=0, topPadding=0)
     
-    # Create page template with footer function
+    # Create page template with footer function and force it to be used
     template = PageTemplate(id='main', frames=frame, onPage=footer_canvas)
     doc.addPageTemplates([template])
+    
+    # Force the template to be used on all pages
+    doc.pageTemplate = 'main'
     
     story = []
     
@@ -404,7 +407,7 @@ def create_pdf_download(df_dict, filename):
     # Add disclaimer
     story.append(Paragraph("Disclaimer: This data is sourced from our CRM and not our accounting software, based on then-available data. Final accounting data and results may vary slightly.", disclaimer_style))
     
-    # Build PDF with single pass
+    # Build PDF
     try:
         doc.build(story)
         buffer.seek(0)
