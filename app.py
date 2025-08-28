@@ -152,6 +152,8 @@ def create_summary_stats(df):
         'median_markup': df['Realized Markup'].median(),
         'max_markup': df['Realized Markup'].max(),
         'min_markup': df['Realized Markup'].min(),
+        'average_margin': df['Realized Margin'].mean(),
+        'median_margin': df['Realized Margin'].median(),
         'average_days': df['Days Until Sold'].mean(),
         'median_days': df['Days Until Sold'].median(),
         'max_days': df['Days Until Sold'].max(),
@@ -467,8 +469,19 @@ def main():
                     st.metric("Average Markup", format_percentage(stats['average_markup']))
                     st.metric("Median Markup", format_percentage(stats['median_markup']))
                 with col4:
+                    st.metric("Average Margin", format_percentage(stats['average_margin']))
+                    st.metric("Median Margin", format_percentage(stats['median_margin']))
+                
+                # Additional row for days to sell
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
                     st.metric("Average Days to Sell", f"{stats['average_days']:.0f}")
+                with col2:
                     st.metric("Median Days to Sell", f"{stats['median_days']:.0f}")
+                with col3:
+                    st.metric("Max Days to Sell", f"{stats['max_days']:.0f}")
+                with col4:
+                    st.metric("Min Days to Sell", f"{stats['min_days']:.0f}")
                 
                 st.divider()
             
@@ -488,8 +501,19 @@ def main():
                     st.metric("Average Markup", format_percentage(overall_stats['average_markup']))
                     st.metric("Max Markup", format_percentage(overall_stats['max_markup']))
                 with col4:
+                    st.metric("Average Margin", format_percentage(overall_stats['average_margin']))
+                    st.metric("Median Margin", format_percentage(overall_stats['median_margin']))
+                
+                # Additional row for days to sell
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
                     st.metric("Average Days to Sell", f"{overall_stats['average_days']:.0f}")
+                with col2:
                     st.metric("Max Days to Sell", f"{overall_stats['max_days']:.0f}")
+                with col3:
+                    st.metric("Min Days to Sell", f"{overall_stats['min_days']:.0f}")
+                with col4:
+                    st.metric("Median Days to Sell", f"{overall_stats['median_days']:.0f}")
             
             # Download section
             st.subheader("📥 Download Report")
