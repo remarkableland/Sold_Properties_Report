@@ -207,8 +207,20 @@ def create_excel_download(df, filename):
         worksheet.write(row, 0, data.get('Property Name', ''))
         worksheet.write(row, 1, data.get('State', ''))
         worksheet.write(row, 2, data.get('County', ''))
-        worksheet.write(row, 3, data.get('Acres', 0), number_format)
-        worksheet.write(row, 4, data.get('Cost Basis', 0), currency_format)
+        
+        # Handle Acres with null/inf check
+        acres = data.get('Acres', 0)
+        if pd.notna(acres) and np.isfinite(acres):
+            worksheet.write(row, 3, acres, number_format)
+        else:
+            worksheet.write(row, 3, 0, number_format)
+        
+        # Handle Cost Basis with null/inf check
+        cost_basis = data.get('Cost Basis', 0)
+        if pd.notna(cost_basis) and np.isfinite(cost_basis):
+            worksheet.write(row, 4, cost_basis, currency_format)
+        else:
+            worksheet.write(row, 4, 0, currency_format)
         
         # Handle Date Purchased with null check
         date_purchased = data.get('Date Purchased')
@@ -218,7 +230,13 @@ def create_excel_download(df, filename):
             worksheet.write(row, 5, '')
             
         worksheet.write(row, 6, data.get('Opportunity Status', ''))
-        worksheet.write(row, 7, data.get('Days Until Sold', 0), number_format)
+        
+        # Handle Days Until Sold with null/inf check
+        days_sold = data.get('Days Until Sold', 0)
+        if pd.notna(days_sold) and np.isfinite(days_sold):
+            worksheet.write(row, 7, int(days_sold), number_format)
+        else:
+            worksheet.write(row, 7, 0, number_format)
         
         # Handle Date Sold with null check
         date_sold = data.get('Date Sold')
@@ -226,10 +244,27 @@ def create_excel_download(df, filename):
             worksheet.write(row, 8, date_sold, date_format)
         else:
             worksheet.write(row, 8, '')
-            
-        worksheet.write(row, 9, data.get('Gross Sales Price', 0), currency_format)
-        worksheet.write(row, 10, data.get('Realized Gross Profit', 0), currency_format)
-        worksheet.write(row, 11, data.get('Realized Markup', 0) / 100, percentage_format)
+        
+        # Handle Gross Sales Price with null/inf check
+        gross_sales = data.get('Gross Sales Price', 0)
+        if pd.notna(gross_sales) and np.isfinite(gross_sales):
+            worksheet.write(row, 9, gross_sales, currency_format)
+        else:
+            worksheet.write(row, 9, 0, currency_format)
+        
+        # Handle Realized Gross Profit with null/inf check
+        gross_profit = data.get('Realized Gross Profit', 0)
+        if pd.notna(gross_profit) and np.isfinite(gross_profit):
+            worksheet.write(row, 10, gross_profit, currency_format)
+        else:
+            worksheet.write(row, 10, 0, currency_format)
+        
+        # Handle Realized Markup with null/inf check
+        markup = data.get('Realized Markup', 0)
+        if pd.notna(markup) and np.isfinite(markup):
+            worksheet.write(row, 11, markup / 100, percentage_format)
+        else:
+            worksheet.write(row, 11, 0, percentage_format)
     
     # Auto-adjust column widths
     for col in range(len(headers)):
