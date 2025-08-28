@@ -9,7 +9,7 @@ try:
     from reportlab.lib.pagesizes import letter, legal, landscape
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlit.lib.units import inch
+    from reportlab.lib.units import inch
     from reportlab.lib import colors
     REPORTLAB_AVAILABLE = True
 except ImportError:
@@ -162,7 +162,7 @@ def create_pdf_download(df_dict, filename):
     buffer = BytesIO()
     
     # Create the PDF document with landscape legal page size
-    doc = SimpleDocDocument(buffer, pagesize=landscape(legal),
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(legal),
                           topMargin=0.5*inch, bottomMargin=0.5*inch,
                           leftMargin=0.5*inch, rightMargin=0.5*inch)
     
