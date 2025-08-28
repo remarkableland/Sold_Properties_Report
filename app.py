@@ -14,6 +14,7 @@ st.set_page_config(
 # Field mapping from Close.com to report headers
 FIELD_MAPPING = {
     'display_name': 'Property Name',
+    'custom.Asset_Owner': 'Owner',
     'custom.All_State': 'State',
     'custom.All_County': 'County',
     'custom.All_Asset_Surveyed_Acres': 'Acres',
@@ -22,8 +23,7 @@ FIELD_MAPPING = {
     'primary_opportunity_status_label': 'Opportunity Status',
     'custom.Asset_Date_Sold': 'Date Sold',
     'custom.Asset_Gross_Sales_Price': 'Gross Sales Price',
-    'custom.Asset_Closing_Costs': 'Closing Costs',
-    'custom.Asset_Owner': 'Owner'
+    'custom.Asset_Closing_Costs': 'Closing Costs'
 }
 
 def parse_date(date_str):
@@ -195,9 +195,9 @@ def create_excel_download(df, filename):
     })
     
     # Write headers
-    headers = ['Property Name', 'State', 'County', 'Acres', 'Cost Basis', 'Date Purchased',
-               'Opportunity Status', 'Days Until Sold', 'Date Sold', 'Gross Sales Price',
-               'Realized Gross Profit', 'Realized Markup']
+    headers = ['Property Name', 'Owner', 'State', 'County', 'Acres', 'Cost Basis', 'Date Purchased',
+               'Opportunity Status', 'Days Until Sold', 'Date Sold', 'Gross Sales Price', 'Closing Costs',
+               'Realized Gross Profit', 'Realized Markup', 'Realized Margin']
     
     for col, header in enumerate(headers):
         worksheet.write(0, col, header, header_format)
@@ -205,66 +205,81 @@ def create_excel_download(df, filename):
     # Write data
     for row, (_, data) in enumerate(df.iterrows(), 1):
         worksheet.write(row, 0, data.get('Property Name', ''))
-        worksheet.write(row, 1, data.get('State', ''))
-        worksheet.write(row, 2, data.get('County', ''))
+        worksheet.write(row, 1, data.get('Owner', ''))
+        worksheet.write(row, 2, data.get('State', ''))
+        worksheet.write(row, 3, data.get('County', ''))
         
         # Handle Acres with null/inf check
         acres = data.get('Acres', 0)
         if pd.notna(acres) and np.isfinite(acres):
-            worksheet.write(row, 3, acres, number_format)
+            worksheet.write(row, 4, acres, number_format)
         else:
-            worksheet.write(row, 3, 0, number_format)
+            worksheet.write(row, 4, 0, number_format)
         
         # Handle Cost Basis with null/inf check
         cost_basis = data.get('Cost Basis', 0)
         if pd.notna(cost_basis) and np.isfinite(cost_basis):
-            worksheet.write(row, 4, cost_basis, currency_format)
+            worksheet.write(row, 5, cost_basis, currency_format)
         else:
-            worksheet.write(row, 4, 0, currency_format)
+            worksheet.write(row, 5, 0, currency_format)
         
         # Handle Date Purchased with null check
         date_purchased = data.get('Date Purchased')
         if pd.notna(date_purchased) and date_purchased != '':
-            worksheet.write(row, 5, date_purchased, date_format)
+            worksheet.write(row, 6, date_purchased, date_format)
         else:
-            worksheet.write(row, 5, '')
+            worksheet.write(row, 6, '')
             
-        worksheet.write(row, 6, data.get('Opportunity Status', ''))
+        worksheet.write(row, 7, data.get('Opportunity Status', ''))
         
         # Handle Days Until Sold with null/inf check
         days_sold = data.get('Days Until Sold', 0)
         if pd.notna(days_sold) and np.isfinite(days_sold):
-            worksheet.write(row, 7, int(days_sold), number_format)
+            worksheet.write(row, 8, int(days_sold), number_format)
         else:
-            worksheet.write(row, 7, 0, number_format)
+            worksheet.write(row, 8, 0, number_format)
         
         # Handle Date Sold with null check
         date_sold = data.get('Date Sold')
         if pd.notna(date_sold) and date_sold != '':
-            worksheet.write(row, 8, date_sold, date_format)
+            worksheet.write(row, 9, date_sold, date_format)
         else:
-            worksheet.write(row, 8, '')
+            worksheet.write(row, 9, '')
         
         # Handle Gross Sales Price with null/inf check
         gross_sales = data.get('Gross Sales Price', 0)
         if pd.notna(gross_sales) and np.isfinite(gross_sales):
-            worksheet.write(row, 9, gross_sales, currency_format)
+            worksheet.write(row, 10, gross_sales, currency_format)
         else:
-            worksheet.write(row, 9, 0, currency_format)
+            worksheet.write(row, 10, 0, currency_format)
+        
+        # Handle Closing Costs with null/inf check
+        closing_costs = data.get('Closing Costs', 0)
+        if pd.notna(closing_costs) and np.isfinite(closing_costs):
+            worksheet.write(row, 11, closing_costs, currency_format)
+        else:
+            worksheet.write(row, 11, 0, currency_format)
         
         # Handle Realized Gross Profit with null/inf check
         gross_profit = data.get('Realized Gross Profit', 0)
         if pd.notna(gross_profit) and np.isfinite(gross_profit):
-            worksheet.write(row, 10, gross_profit, currency_format)
+            worksheet.write(row, 12, gross_profit, currency_format)
         else:
-            worksheet.write(row, 10, 0, currency_format)
+            worksheet.write(row, 12, 0, currency_format)
         
         # Handle Realized Markup with null/inf check
         markup = data.get('Realized Markup', 0)
         if pd.notna(markup) and np.isfinite(markup):
-            worksheet.write(row, 11, markup / 100, percentage_format)
+            worksheet.write(row, 13, markup / 100, percentage_format)
         else:
-            worksheet.write(row, 11, 0, percentage_format)
+            worksheet.write(row, 13, 0, percentage_format)
+        
+        # Handle Realized Margin with null/inf check
+        margin = data.get('Realized Margin', 0)
+        if pd.notna(margin) and np.isfinite(margin):
+            worksheet.write(row, 14, margin / 100, percentage_format)
+        else:
+            worksheet.write(row, 14, 0, percentage_format)
     
     # Auto-adjust column widths
     for col in range(len(headers)):
@@ -406,9 +421,10 @@ def main():
                 
                 # Prepare display data
                 display_columns = [
-                    'Property Name', 'State', 'County', 'Acres', 'Cost Basis',
+                    'Property Name', 'Owner', 'State', 'County', 'Acres', 'Cost Basis',
                     'Date Purchased', 'Opportunity Status', 'Days Until Sold',
-                    'Date Sold', 'Gross Sales Price', 'Realized Gross Profit', 'Realized Markup'
+                    'Date Sold', 'Gross Sales Price', 'Closing Costs', 'Realized Gross Profit', 
+                    'Realized Markup', 'Realized Margin'
                 ]
                 
                 display_df = quarter_data[display_columns].copy()
@@ -418,10 +434,14 @@ def main():
                     display_df['Cost Basis'] = display_df['Cost Basis'].apply(format_currency)
                 if 'Gross Sales Price' in display_df.columns:
                     display_df['Gross Sales Price'] = display_df['Gross Sales Price'].apply(format_currency)
+                if 'Closing Costs' in display_df.columns:
+                    display_df['Closing Costs'] = display_df['Closing Costs'].apply(format_currency)
                 if 'Realized Gross Profit' in display_df.columns:
                     display_df['Realized Gross Profit'] = display_df['Realized Gross Profit'].apply(format_currency)
                 if 'Realized Markup' in display_df.columns:
                     display_df['Realized Markup'] = display_df['Realized Markup'].apply(format_percentage)
+                if 'Realized Margin' in display_df.columns:
+                    display_df['Realized Margin'] = display_df['Realized Margin'].apply(format_percentage)
                 if 'Date Purchased' in display_df.columns:
                     display_df['Date Purchased'] = display_df['Date Purchased'].apply(
                         lambda x: x.strftime('%m/%d/%Y') if pd.notna(x) else ''
