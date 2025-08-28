@@ -840,10 +840,9 @@ def main():
                 quarter_data_dict[quarter] = filtered_df[filtered_df['Quarter_Year'] == quarter].copy()
             
             # Generate filenames
-            quarters_str = "_".join(sorted_selected_quarters).replace(" ", "")
-            current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-            excel_filename = f"sold_properties_{quarters_str}_{current_time}.xlsx"
-            pdf_filename = f"sold_properties_{quarters_str}_{current_time}.pdf"
+            current_date = datetime.now().strftime("%Y%m%d")
+            excel_filename = f"{current_date} Sold Property Report.xlsx"
+            pdf_filename = f"{current_date} Sold Property Report.pdf"
             
             col1, col2 = st.columns(2)
             
