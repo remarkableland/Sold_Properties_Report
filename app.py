@@ -163,7 +163,7 @@ def create_pdf_download(df_dict, filename):
 
     buffer = BytesIO()
     
-    # Create the PDF document with landscape legal page size and custom page template
+    # Create the PDF document with landscape legal page size
     doc = SimpleDocTemplate(buffer, pagesize=landscape(legal),
                           topMargin=0.5*inch, bottomMargin=0.8*inch,  # Increased bottom margin for footer
                           leftMargin=0.5*inch, rightMargin=0.5*inch)
@@ -177,7 +177,7 @@ def create_pdf_download(df_dict, filename):
         
         # Footer text
         footer_text = f"Generated: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}"
-        page_text = f"Page {canvas.getPageNumber()} of {doc.page}"
+        page_text = f"Page {canvas.getPageNumber()}"
         
         # Draw footer text (left side)
         canvas.setFont("Helvetica", 8)
@@ -404,53 +404,8 @@ def create_pdf_download(df_dict, filename):
     # Add disclaimer
     story.append(Paragraph("Disclaimer: This data is sourced from our CRM and not our accounting software, based on then-available data. Final accounting data and results may vary slightly.", disclaimer_style))
     
-    # Build PDF
+    # Build PDF with single pass
     try:
-        # First pass to count pages
-        doc.build(story)
-        total_pages = doc.page
-        
-        # Reset buffer for second pass
-        buffer.seek(0)
-        buffer.truncate()
-        
-        # Create new document for final build
-        doc = SimpleDocTemplate(buffer, pagesize=landscape(legal),
-                              topMargin=0.5*inch, bottomMargin=0.8*inch,
-                              leftMargin=0.5*inch, rightMargin=0.5*inch)
-        
-        def final_footer_canvas(canvas, doc):
-            """Add footer to each page with correct total page count"""
-            canvas.saveState()
-            
-            # Get page dimensions
-            page_width, page_height = landscape(legal)
-            
-            # Footer text
-            footer_text = f"Generated: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}"
-            page_text = f"Page {canvas.getPageNumber()} of {total_pages}"
-            
-            # Draw footer text (left side)
-            canvas.setFont("Helvetica", 8)
-            canvas.drawString(0.5*inch, 0.4*inch, footer_text)
-            
-            # Draw page numbers (right side)
-            canvas.drawRightString(page_width - 0.5*inch, 0.4*inch, page_text)
-            
-            canvas.restoreState()
-        
-        # Get page dimensions for frame
-        page_width, page_height = landscape(legal)
-        
-        # Create frame for main content (excluding footer space)
-        frame = Frame(0.5*inch, 0.8*inch, page_width - 1*inch, page_height - 1.3*inch, 
-                      leftPadding=0, bottomPadding=0, rightPadding=0, topPadding=0)
-        
-        # Create page template with final footer function
-        template = PageTemplate(id='main', frames=frame, onPage=final_footer_canvas)
-        doc.addPageTemplates([template])
-        
-        # Final build with correct page numbers
         doc.build(story)
         buffer.seek(0)
         return buffer
