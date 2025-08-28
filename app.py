@@ -96,11 +96,16 @@ def calculate_realized_margin(realized_gross_profit, gross_sales_price):
     return (realized_gross_profit / gross_sales_price) * 100
 
 def process_data(df):
-    """Process the uploaded data"""
+    """Process the uploaded data and return processed data plus error report"""
+    # Store original data for error tracking
+    df_original = df.copy()
+    total_records = len(df_original)
+    
+    # Initialize error tracking
+    error_records = []
+    
     # Rename columns based on mapping
     df_processed = df.copy()
-    
-    # Rename columns that exist in the dataframe
     columns_to_rename = {k: v for k, v in FIELD_MAPPING.items() if k in df_processed.columns}
     df_processed = df_processed.rename(columns=columns_to_rename)
     
@@ -110,9 +115,56 @@ def process_data(df):
     if 'Date Sold' in df_processed.columns:
         df_processed['Date Sold'] = df_processed['Date Sold'].apply(parse_date)
     
-    # Filter only sold properties
+    # Track records that will be filtered out
     if 'Opportunity Status' in df_processed.columns:
+        # Find records that are NOT "Sold"
+        non_sold_mask = df_processed['Opportunity Status'] != 'Sold'
+        non_sold_records = df_processed[non_sold_mask].copy()
+        
+        for idx, row in non_sold_records.iterrows():
+            error_records.append({
+                'Property Name': row.get('Property Name', 'Unknown'),
+                'Owner': row.get('Owner', 'Unknown'),
+                'Opportunity Status': row.get('Opportunity Status', 'Missing'),
+                'Error Type': 'Status Not "Sold"',
+                'Error Detail': f'Status is "{row.get("Opportunity Status")}" instead of "Sold"',
+                'Date Sold': row.get('Date Sold', 'N/A'),
+                'Row Number': idx + 2  # +2 because of 0-indexing and header row
+            })
+        
+        # Find records with null/missing status
+        null_status_mask = df_processed['Opportunity Status'].isna()
+        null_status_records = df_processed[null_status_mask].copy()
+        
+        for idx, row in null_status_records.iterrows():
+            error_records.append({
+                'Property Name': row.get('Property Name', 'Unknown'),
+                'Owner': row.get('Owner', 'Unknown'),
+                'Opportunity Status': 'NULL/Missing',
+                'Error Type': 'Missing Status',
+                'Error Detail': 'Opportunity Status field is empty or null',
+                'Date Sold': row.get('Date Sold', 'N/A'),
+                'Row Number': idx + 2
+            })
+        
+        # Filter to only sold properties
         df_processed = df_processed[df_processed['Opportunity Status'] == 'Sold'].copy()
+    
+    # Track records with missing or invalid Date Sold
+    if 'Date Sold' in df_processed.columns:
+        missing_date_mask = df_processed['Date Sold'].isna()
+        missing_date_records = df_processed[missing_date_mask].copy()
+        
+        for idx, row in missing_date_records.iterrows():
+            error_records.append({
+                'Property Name': row.get('Property Name', 'Unknown'),
+                'Owner': row.get('Owner', 'Unknown'),
+                'Opportunity Status': row.get('Opportunity Status', 'Unknown'),
+                'Error Type': 'Missing Date Sold',
+                'Error Detail': 'Date Sold field is empty, null, or could not be parsed',
+                'Date Sold': 'Invalid/Missing',
+                'Row Number': idx + 2
+            })
     
     # Convert numeric columns
     numeric_columns = ['Acres', 'Cost Basis', 'Gross Sales Price', 'Closing Costs']
@@ -151,7 +203,10 @@ def process_data(df):
     # Add quarter-year for filtering
     df_processed['Quarter_Year'] = df_processed['Date Sold'].apply(get_quarter_year)
     
-    return df_processed
+    # Create error report DataFrame
+    error_df = pd.DataFrame(error_records)
+    
+    return df_processed, error_df, total_records
 
 def create_pdf_download(df_dict, filename):
     """Create PDF file organized by quarter"""
@@ -414,7 +469,110 @@ def create_summary_stats(df):
         'min_days': df['Days Until Sold'].min()
     }
 
-def create_excel_download(df, filename):
+def create_error_report_excel(error_df, total_records, processed_records, filename):
+    """Create Excel error report for records that didn't import"""
+    output = BytesIO()
+    
+    # Create a workbook and worksheet
+    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+    
+    # Summary worksheet
+    summary_worksheet = workbook.add_worksheet('Import Summary')
+    
+    # Error details worksheet
+    error_worksheet = workbook.add_worksheet('Error Details')
+    
+    # Define formats
+    header_format = workbook.add_format({
+        'bold': True,
+        'bg_color': '#D32F2F',
+        'font_color': 'white',
+        'border': 1
+    })
+    
+    summary_header_format = workbook.add_format({
+        'bold': True,
+        'bg_color': '#1976D2',
+        'font_color': 'white',
+        'border': 1
+    })
+    
+    error_format = workbook.add_format({
+        'bg_color': '#FFEBEE',
+        'border': 1
+    })
+    
+    success_format = workbook.add_format({
+        'bg_color': '#E8F5E8',
+        'border': 1
+    })
+    
+    # Summary worksheet content
+    summary_worksheet.write(0, 0, 'Import Summary Report', summary_header_format)
+    summary_worksheet.write(2, 0, 'Metric', summary_header_format)
+    summary_worksheet.write(2, 1, 'Value', summary_header_format)
+    
+    summary_worksheet.write(3, 0, 'Total Records in CSV', success_format)
+    summary_worksheet.write(3, 1, total_records, success_format)
+    
+    summary_worksheet.write(4, 0, 'Successfully Processed', success_format)
+    summary_worksheet.write(4, 1, processed_records, success_format)
+    
+    summary_worksheet.write(5, 0, 'Records with Errors', error_format)
+    summary_worksheet.write(5, 1, len(error_df), error_format)
+    
+    success_rate = (processed_records / total_records * 100) if total_records > 0 else 0
+    summary_worksheet.write(6, 0, 'Success Rate', summary_header_format)
+    summary_worksheet.write(6, 1, f"{success_rate:.1f}%", summary_header_format)
+    
+    # Error breakdown by type
+    if len(error_df) > 0:
+        summary_worksheet.write(8, 0, 'Error Breakdown by Type', summary_header_format)
+        summary_worksheet.write(9, 0, 'Error Type', summary_header_format)
+        summary_worksheet.write(9, 1, 'Count', summary_header_format)
+        
+        error_counts = error_df['Error Type'].value_counts()
+        for idx, (error_type, count) in enumerate(error_counts.items()):
+            summary_worksheet.write(10 + idx, 0, error_type, error_format)
+            summary_worksheet.write(10 + idx, 1, count, error_format)
+    
+    # Set column widths for summary
+    summary_worksheet.set_column(0, 0, 25)
+    summary_worksheet.set_column(1, 1, 15)
+    
+    # Error details worksheet
+    if len(error_df) > 0:
+        headers = ['Row Number', 'Property Name', 'Owner', 'Opportunity Status', 'Error Type', 'Error Detail', 'Date Sold']
+        
+        # Write headers
+        for col, header in enumerate(headers):
+            error_worksheet.write(0, col, header, header_format)
+        
+        # Write error data
+        for row, (_, data) in enumerate(error_df.iterrows(), 1):
+            error_worksheet.write(row, 0, data.get('Row Number', ''), error_format)
+            error_worksheet.write(row, 1, data.get('Property Name', ''), error_format)
+            error_worksheet.write(row, 2, data.get('Owner', ''), error_format)
+            error_worksheet.write(row, 3, data.get('Opportunity Status', ''), error_format)
+            error_worksheet.write(row, 4, data.get('Error Type', ''), error_format)
+            error_worksheet.write(row, 5, data.get('Error Detail', ''), error_format)
+            error_worksheet.write(row, 6, str(data.get('Date Sold', '')), error_format)
+        
+        # Set column widths for error details
+        error_worksheet.set_column(0, 0, 10)  # Row Number
+        error_worksheet.set_column(1, 1, 25)  # Property Name
+        error_worksheet.set_column(2, 2, 20)  # Owner
+        error_worksheet.set_column(3, 3, 15)  # Opportunity Status
+        error_worksheet.set_column(4, 4, 20)  # Error Type
+        error_worksheet.set_column(5, 5, 40)  # Error Detail
+        error_worksheet.set_column(6, 6, 15)  # Date Sold
+    else:
+        error_worksheet.write(0, 0, 'No errors found - all records processed successfully!', success_format)
+    
+    workbook.close()
+    output.seek(0)
+    
+    return output
     """Create Excel file for download"""
     output = BytesIO()
     
@@ -630,13 +788,38 @@ def main():
         try:
             # Load and process data
             df = pd.read_csv(uploaded_file)
-            df_processed = process_data(df)
+            df_processed, error_df, total_records = process_data(df)
             
             if len(df_processed) == 0:
                 st.warning("No sold properties found in the uploaded data.")
+                if len(error_df) > 0:
+                    st.error(f"Found {len(error_df)} records with errors that prevented processing.")
                 return
             
-            st.success(f"✅ Loaded {len(df_processed)} sold properties")
+            # Display import summary
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Records", total_records)
+            with col2:
+                st.metric("Successfully Processed", len(df_processed))
+            with col3:
+                st.metric("Records with Errors", len(error_df))
+            with col4:
+                success_rate = (len(df_processed) / total_records * 100) if total_records > 0 else 0
+                st.metric("Success Rate", f"{success_rate:.1f}%")
+            
+            # Show error summary if there are errors
+            if len(error_df) > 0:
+                st.warning(f"⚠️ {len(error_df)} records could not be processed. Download the error report below for details.")
+                
+                # Show error breakdown
+                with st.expander("View Error Summary"):
+                    error_counts = error_df['Error Type'].value_counts()
+                    st.write("**Error Breakdown:**")
+                    for error_type, count in error_counts.items():
+                        st.write(f"• {error_type}: {count} records")
+            else:
+                st.success(f"✅ All {total_records} records processed successfully!")
             
             # Filters
             st.subheader("📊 Report Filters")
@@ -843,8 +1026,13 @@ def main():
             current_date = datetime.now().strftime("%Y%m%d")
             excel_filename = f"{current_date} Sold Property Report.xlsx"
             pdf_filename = f"{current_date} Sold Property Report.pdf"
+            error_filename = f"{current_date} Import Error Report.xlsx"
             
-            col1, col2 = st.columns(2)
+            # Create three columns for downloads
+            if len(error_df) > 0:
+                col1, col2, col3 = st.columns(3)
+            else:
+                col1, col2 = st.columns(2)
             
             with col1:
                 st.write("**Excel Report**")
@@ -874,6 +1062,21 @@ def main():
                 else:
                     st.warning("PDF generation requires reportlab. Run: pip install reportlab")
                     st.info("Excel download is still available above.")
+            
+            # Error report download (only show if there are errors)
+            if len(error_df) > 0:
+                with col3:
+                    st.write("**Error Report**")
+                    # Create error report file
+                    error_file = create_error_report_excel(error_df, total_records, len(df_processed), error_filename)
+                    
+                    st.download_button(
+                        label="⚠️ Download Error Report",
+                        data=error_file.getvalue(),
+                        file_name=error_filename,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        help=f"Download detailed report of {len(error_df)} records that could not be processed"
+                    )
             
             # Disclaimer
             st.markdown("---")
