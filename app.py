@@ -211,8 +211,8 @@ def create_pdf_download(df_dict, filename):
     story.append(Paragraph(f"Generated: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}", summary_style))
     story.append(Spacer(1, 12))
     
-    # Process each quarter
-    for quarter in sorted(df_dict.keys()):
+    # Process each quarter (in chronological order)
+    for quarter in sort_quarters_chronologically(df_dict.keys()):
         quarter_data = df_dict[quarter]
         
         if len(quarter_data) == 0:
@@ -221,19 +221,19 @@ def create_pdf_download(df_dict, filename):
         # Quarter title
         story.append(Paragraph(f"{quarter}", quarter_style))
         
-        # Prepare table data
-        table_headers = ['Property Name', 'Owner', 'State', 'County', 'Acres', 'Cost Basis',
-                        'Date Purchased', 'Days Until Sold', 'Date Sold', 'Gross Sales Price',
-                        'Closing Costs', 'Realized Gross Profit', 'Realized Markup', 'Realized Margin']
+        # Prepare table data with wrapped headers
+        table_headers = ['Property\nName', 'Owner', 'State', 'County', 'Acres', 'Cost\nBasis',
+                        'Date\nPurchased', 'Days\nUntil Sold', 'Date\nSold', 'Gross Sales\nPrice',
+                        'Closing\nCosts', 'Realized Gross\nProfit', 'Realized\nMarkup', 'Realized\nMargin']
         
         table_data = [table_headers]
         
         for _, row in quarter_data.iterrows():
             formatted_row = [
-                str(row.get('Property Name', ''))[:25],  # Truncate long names
-                str(row.get('Owner', ''))[:15],
+                str(row.get('Property Name', ''))[:30],  # Allow longer property names
+                str(row.get('Owner', ''))[:18],  # Allow longer owner names
                 str(row.get('State', '')),
-                str(row.get('County', ''))[:12],
+                str(row.get('County', ''))[:15],  # Allow longer county names
                 f"{row.get('Acres', 0):.1f}",
                 f"${row.get('Cost Basis', 0):,.0f}",
                 row.get('Date Purchased').strftime('%m/%d/%Y') if pd.notna(row.get('Date Purchased')) else '',
@@ -247,29 +247,34 @@ def create_pdf_download(df_dict, filename):
             ]
             table_data.append(formatted_row)
         
-        # Create table with appropriate column widths for landscape legal
-        col_widths = [1.2*inch, 0.8*inch, 0.4*inch, 0.7*inch, 0.4*inch, 0.7*inch, 
-                     0.7*inch, 0.4*inch, 0.7*inch, 0.8*inch, 0.6*inch, 0.8*inch, 0.5*inch, 0.5*inch]
+        # Create table with optimized column widths for landscape legal (14" x 8.5")
+        # Total usable width: approximately 13" (14" - 1" margins)
+        col_widths = [1.5*inch, 1.0*inch, 0.4*inch, 0.8*inch, 0.5*inch, 0.8*inch, 
+                     0.8*inch, 0.6*inch, 0.8*inch, 1.0*inch, 0.8*inch, 1.0*inch, 0.6*inch, 0.6*inch]
         
         table = Table(table_data, colWidths=col_widths, repeatRows=1)
         
-        # Table style
+        # Table style with better formatting for landscape legal
         table.setStyle(TableStyle([
             # Header formatting
             ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+            ('FONTSIZE', (0, 0), (-1, 0), 9),  # Larger header font
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('TOPPADDING', (0, 0), (-1, 0), 8),
             
             # Data formatting
             ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 1), (-1, -1), 7),
+            ('FONTSIZE', (0, 1), (-1, -1), 8),  # Larger data font
             ('ALIGN', (0, 1), (1, -1), 'LEFT'),  # Property Name and Owner left-aligned
-            ('ALIGN', (4, 1), (-1, -1), 'RIGHT'),  # Numbers right-aligned
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+            ('ALIGN', (2, 1), (3, -1), 'CENTER'),  # State and County centered
+            ('ALIGN', (4, 1), (-1, -1), 'RIGHT'),  # All numbers right-aligned
+            ('GRID', (0, 0), (-1, -1), 0.8, colors.black),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 1), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
             
             # Alternating row colors
             ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey]),
@@ -307,7 +312,8 @@ def create_pdf_download(df_dict, filename):
         story.append(summary_table)
         
         # Add page break between quarters (except for the last one)
-        if quarter != sorted(df_dict.keys())[-1]:
+        sorted_quarters = sort_quarters_chronologically(df_dict.keys())
+        if quarter != sorted_quarters[-1]:
             story.append(PageBreak())
         else:
             story.append(Spacer(1, 12))
@@ -702,10 +708,13 @@ def main():
                 st.warning("No properties match your selected filters.")
                 return
             
-            # Display results by quarter
+            # Display results by quarter (in chronological order)
             st.subheader("📈 Sold Properties Report")
             
-            for quarter in selected_quarters:
+            # Sort selected quarters chronologically
+            sorted_selected_quarters = sort_quarters_chronologically(selected_quarters)
+            
+            for quarter in sorted_selected_quarters:
                 quarter_data = filtered_df[filtered_df['Quarter_Year'] == quarter].copy()
                 if len(quarter_data) == 0:
                     continue
@@ -809,13 +818,14 @@ def main():
             # Download section
             st.subheader("📥 Download Reports")
             
-            # Prepare data for PDF (organized by quarter)
+            # Prepare data for PDF (organized by quarter in chronological order)
             quarter_data_dict = {}
-            for quarter in selected_quarters:
+            sorted_selected_quarters = sort_quarters_chronologically(selected_quarters)
+            for quarter in sorted_selected_quarters:
                 quarter_data_dict[quarter] = filtered_df[filtered_df['Quarter_Year'] == quarter].copy()
             
             # Generate filenames
-            quarters_str = "_".join(selected_quarters).replace(" ", "")
+            quarters_str = "_".join(sorted_selected_quarters).replace(" ", "")
             current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
             excel_filename = f"sold_properties_{quarters_str}_{current_time}.xlsx"
             pdf_filename = f"sold_properties_{quarters_str}_{current_time}.pdf"
