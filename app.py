@@ -755,30 +755,61 @@ def create_pdf_download(df_dict, filename):
         
         story.append(Paragraph("Overall Summary", quarter_style))
         
+        # Create a 4-column layout similar to web version
         overall_summary_data = [
-            ['Metric', 'Value', 'Metric', 'Value'],
+            # Row 1: Total Properties (centered across all columns)
             ['Total Properties', f"{overall_stats['total_properties']}", '', ''],
-            ['Total Gross Sales', f"${overall_stats['total_gross_sales']:,.0f}", 'Total Cost Basis', f"${overall_stats['total_cost_basis']:,.0f}"],
-            ['Total Closing Costs', f"${overall_stats['total_closing_costs']:,.0f}", 'Total Gross Profit', f"${overall_stats['total_gross_profit']:,.0f}"],
-            ['Average Markup', f"{overall_stats['average_markup']:.0f}%", 'Median Markup', f"{overall_stats['median_markup']:.0f}%"],
-            ['Average Margin', f"{overall_stats['average_margin']:.0f}%", 'Median Margin', f"{overall_stats['median_margin']:.0f}%"],
-            ['Average Days to Sell', f"{overall_stats['average_days']:.0f}", 'Median Days to Sell', f"{overall_stats['median_days']:.0f}"],
-            ['Max Days to Sell', f"{overall_stats['max_days']:.0f}", 'Min Days to Sell', f"{overall_stats['min_days']:.0f}"]
+            # Row 2: Financial totals
+            ['Total Gross Sales', 'Total Cost Basis', 'Total Closing Costs', 'Total Gross Profit'],
+            [f"${overall_stats['total_gross_sales']:,.0f}", f"${overall_stats['total_cost_basis']:,.0f}", f"${overall_stats['total_closing_costs']:,.0f}", f"${overall_stats['total_gross_profit']:,.0f}"],
+            # Row 3: Markup and Margin percentages
+            ['Average Markup', 'Median Markup', 'Average Margin', 'Median Margin'],
+            [f"{overall_stats['average_markup']:.0f}%", f"{overall_stats['median_markup']:.0f}%", f"{overall_stats['average_margin']:.0f}%", f"{overall_stats['median_margin']:.0f}%"],
+            # Row 4: Days to sell metrics
+            ['Average Days to Sell', 'Median Days to Sell', 'Max Days to Sell', 'Min Days to Sell'],
+            [f"{overall_stats['average_days']:.0f}", f"{overall_stats['median_days']:.0f}", f"{overall_stats['max_days']:.0f}", f"{overall_stats['min_days']:.0f}"]
         ]
         
-        overall_summary_table = Table(overall_summary_data, colWidths=[1.5*inch, 1.5*inch, 1.5*inch, 1.5*inch])
+        overall_summary_table = Table(overall_summary_data, colWidths=[1.75*inch, 1.75*inch, 1.75*inch, 1.75*inch])
         overall_summary_table.setStyle(TableStyle([
+            # Header row for Total Properties
             ('BACKGROUND', (0, 0), (-1, 0), colors.darkgreen),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 10),
-            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 1), (-1, -1), 9),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('ALIGN', (1, 1), (1, -1), 'RIGHT'),
-            ('ALIGN', (3, 1), (3, -1), 'RIGHT'),
+            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+            ('SPAN', (0, 0), (1, 0)),  # Span Total Properties across first two columns
+            
+            # Subheader rows (metric names)
+            ('BACKGROUND', (0, 1), (-1, 1), colors.lightgrey),
+            ('BACKGROUND', (0, 3), (-1, 3), colors.lightgrey),
+            ('BACKGROUND', (0, 5), (-1, 5), colors.lightgrey),
+            ('FONTNAME', (0, 1), (-1, 1), 'Helvetica-Bold'),
+            ('FONTNAME', (0, 3), (-1, 3), 'Helvetica-Bold'),
+            ('FONTNAME', (0, 5), (-1, 5), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 1), (-1, 1), 9),
+            ('FONTSIZE', (0, 3), (-1, 3), 9),
+            ('FONTSIZE', (0, 5), (-1, 5), 9),
+            ('ALIGN', (0, 1), (-1, 1), 'CENTER'),
+            ('ALIGN', (0, 3), (-1, 3), 'CENTER'),
+            ('ALIGN', (0, 5), (-1, 5), 'CENTER'),
+            
+            # Data rows
+            ('FONTNAME', (0, 2), (-1, 2), 'Helvetica'),
+            ('FONTNAME', (0, 4), (-1, 4), 'Helvetica'),
+            ('FONTNAME', (0, 6), (-1, 6), 'Helvetica'),
+            ('FONTSIZE', (0, 2), (-1, 2), 10),
+            ('FONTSIZE', (0, 4), (-1, 4), 10),
+            ('FONTSIZE', (0, 6), (-1, 6), 10),
+            ('ALIGN', (0, 2), (-1, 2), 'CENTER'),
+            ('ALIGN', (0, 4), (-1, 4), 'CENTER'),
+            ('ALIGN', (0, 6), (-1, 6), 'CENTER'),
+            
+            # Grid and spacing
             ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
         ]))
         
         story.append(overall_summary_table)
