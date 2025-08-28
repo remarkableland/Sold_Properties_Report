@@ -759,14 +759,17 @@ def create_pdf_download(df_dict, filename):
         overall_summary_data = [
             # Row 1: Total Properties (centered across all columns)
             ['Total Properties', f"{overall_stats['total_properties']}", '', ''],
-            # Row 2: Financial totals
+            # Row 2: Financial totals headers
             ['Total Gross Sales', 'Total Cost Basis', 'Total Closing Costs', 'Total Gross Profit'],
+            # Row 3: Financial totals values
             [f"${overall_stats['total_gross_sales']:,.0f}", f"${overall_stats['total_cost_basis']:,.0f}", f"${overall_stats['total_closing_costs']:,.0f}", f"${overall_stats['total_gross_profit']:,.0f}"],
-            # Row 3: Markup and Margin percentages
+            # Row 4: Markup and Margin headers
             ['Average Markup', 'Median Markup', 'Average Margin', 'Median Margin'],
+            # Row 5: Markup and Margin values
             [f"{overall_stats['average_markup']:.0f}%", f"{overall_stats['median_markup']:.0f}%", f"{overall_stats['average_margin']:.0f}%", f"{overall_stats['median_margin']:.0f}%"],
-            # Row 4: Days to sell metrics
+            # Row 6: Days to sell headers
             ['Average Days to Sell', 'Median Days to Sell', 'Max Days to Sell', 'Min Days to Sell'],
+            # Row 7: Days to sell values
             [f"{overall_stats['average_days']:.0f}", f"{overall_stats['median_days']:.0f}", f"{overall_stats['max_days']:.0f}", f"{overall_stats['min_days']:.0f}"]
         ]
         
