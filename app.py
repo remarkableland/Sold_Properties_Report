@@ -53,6 +53,23 @@ def get_quarter_year(date):
     year = date.year
     return f"{quarter} {year}"
 
+def sort_quarters_chronologically(quarters):
+    """Sort quarters in chronological order (Q1 2022, Q2 2022, Q3 2022, Q4 2022, Q1 2023, etc.)"""
+    def quarter_sort_key(quarter_str):
+        if not quarter_str or pd.isna(quarter_str):
+            return (0, 0)  # Put invalid quarters first
+        try:
+            parts = quarter_str.split()
+            if len(parts) != 2:
+                return (0, 0)
+            quarter_num = int(parts[0][1:])  # Extract number from "Q1", "Q2", etc.
+            year = int(parts[1])
+            return (year, quarter_num)
+        except (ValueError, IndexError):
+            return (0, 0)
+    
+    return sorted(quarters, key=quarter_sort_key)
+
 def calculate_days_until_sold(date_purchased, date_sold):
     """Calculate days between purchase and sale"""
     if pd.isna(date_purchased) or pd.isna(date_sold):
@@ -607,7 +624,7 @@ def main():
             
             with col1:
                 st.write("**Select Calendar Quarters:**")
-                available_quarters = sorted([q for q in df_processed['Quarter_Year'].unique() if pd.notna(q)])
+                available_quarters = sort_quarters_chronologically([q for q in df_processed['Quarter_Year'].unique() if pd.notna(q)])
                 
                 # Quarter selection controls
                 quarter_col1, quarter_col2 = st.columns(2)
