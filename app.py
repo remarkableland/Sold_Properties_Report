@@ -368,8 +368,8 @@ def create_pdf_download(df_dict, filename):
         story.append(overall_summary_table)
         story.append(Spacer(1, 12))
     
-    # Disclaimer
-    story.append(Paragraph("Disclaimer: This data is sourced from our CRM and not our accounting software, based on then-available data. Final accounting data and results may vary slightly.", disclaimer_style))
+    # Remove disclaimer from story since it's now in footer
+    # story.append(Paragraph("Disclaimer: This data is sourced from our CRM and not our accounting software, based on then-available data. Final accounting data and results may vary slightly.", disclaimer_style))
     
     # Build PDF
     try:
