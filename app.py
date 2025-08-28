@@ -7,7 +7,7 @@ import xlsxwriter
 
 try:
     from reportlab.lib.pagesizes import letter, legal, landscape
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.platypus import SimpleDocDocument, Paragraph, Spacer, Table, TableStyle, PageBreak
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch
     from reportlab.lib import colors
@@ -21,7 +21,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Field mapping from Close.com to report headers
+# Field mapping from Close.com to report headers (for display only)
 FIELD_MAPPING = {
     'display_name': 'Property Name',
     'custom.Asset_Owner': 'Owner',
@@ -130,112 +130,127 @@ def process_data(df):
     # Initialize error tracking
     error_records = []
     
-    # Rename columns based on mapping
+    # Work with original column names but create display versions
     df_processed = df.copy()
-    columns_to_rename = {k: v for k, v in FIELD_MAPPING.items() if k in df_processed.columns}
-    df_processed = df_processed.rename(columns=columns_to_rename)
     
-    # Convert date columns
-    if 'Date Purchased' in df_processed.columns:
-        df_processed['Date Purchased'] = df_processed['Date Purchased'].apply(parse_date)
-    if 'Date Sold' in df_processed.columns:
-        df_processed['Date Sold'] = df_processed['Date Sold'].apply(parse_date)
+    # Convert date columns (using original field names)
+    if 'custom.Asset_Date_Purchased' in df_processed.columns:
+        df_processed['custom.Asset_Date_Purchased'] = df_processed['custom.Asset_Date_Purchased'].apply(parse_date)
+    if 'custom.Asset_Date_Sold' in df_processed.columns:
+        df_processed['custom.Asset_Date_Sold'] = df_processed['custom.Asset_Date_Sold'].apply(parse_date)
     
     # Track records that will be filtered out
-    if 'Opportunity Status' in df_processed.columns:
+    if 'primary_opportunity_status_label' in df_processed.columns:
         # Find records that are NOT "Sold"
-        non_sold_mask = df_processed['Opportunity Status'] != 'Sold'
+        non_sold_mask = df_processed['primary_opportunity_status_label'] != 'Sold'
         non_sold_records = df_processed[non_sold_mask].copy()
         
         for idx, row in non_sold_records.iterrows():
             error_records.append({
-                'Property Name': row.get('Property Name', 'Unknown'),
-                'Owner': row.get('Owner', 'Unknown'),
-                'Opportunity Status': row.get('Opportunity Status', 'Missing'),
+                'ID': row.get('id', 'Unknown'),
+                'Property Name': row.get('display_name', 'Unknown'),
+                'Owner': row.get('custom.Asset_Owner', 'Unknown'),
+                'Opportunity Status': row.get('primary_opportunity_status_label', 'Missing'),
                 'Error Type': 'Status Not "Sold"',
-                'Error Detail': f'Status is "{row.get("Opportunity Status")}" instead of "Sold"',
-                'Date Sold': row.get('Date Sold', 'N/A'),
+                'Error Detail': f'Status is "{row.get("primary_opportunity_status_label")}" instead of "Sold"',
+                'Date Sold': row.get('custom.Asset_Date_Sold', 'N/A'),
                 'Row Number': idx + 2  # +2 because of 0-indexing and header row
             })
         
         # Find records with null/missing status
-        null_status_mask = df_processed['Opportunity Status'].isna()
+        null_status_mask = df_processed['primary_opportunity_status_label'].isna()
         null_status_records = df_processed[null_status_mask].copy()
         
         for idx, row in null_status_records.iterrows():
             error_records.append({
-                'Property Name': row.get('Property Name', 'Unknown'),
-                'Owner': row.get('Owner', 'Unknown'),
+                'ID': row.get('id', 'Unknown'),
+                'Property Name': row.get('display_name', 'Unknown'),
+                'Owner': row.get('custom.Asset_Owner', 'Unknown'),
                 'Opportunity Status': 'NULL/Missing',
                 'Error Type': 'Missing Status',
                 'Error Detail': 'Opportunity Status field is empty or null',
-                'Date Sold': row.get('Date Sold', 'N/A'),
+                'Date Sold': row.get('custom.Asset_Date_Sold', 'N/A'),
                 'Row Number': idx + 2
             })
         
         # Filter to only sold properties
-        df_processed = df_processed[df_processed['Opportunity Status'] == 'Sold'].copy()
+        df_processed = df_processed[df_processed['primary_opportunity_status_label'] == 'Sold'].copy()
     
     # Track records with missing or invalid Date Sold
-    if 'Date Sold' in df_processed.columns:
-        missing_date_mask = df_processed['Date Sold'].isna()
+    if 'custom.Asset_Date_Sold' in df_processed.columns:
+        missing_date_mask = df_processed['custom.Asset_Date_Sold'].isna()
         missing_date_records = df_processed[missing_date_mask].copy()
         
         for idx, row in missing_date_records.iterrows():
             error_records.append({
-                'Property Name': row.get('Property Name', 'Unknown'),
-                'Owner': row.get('Owner', 'Unknown'),
-                'Opportunity Status': row.get('Opportunity Status', 'Unknown'),
+                'ID': row.get('id', 'Unknown'),
+                'Property Name': row.get('display_name', 'Unknown'),
+                'Owner': row.get('custom.Asset_Owner', 'Unknown'),
+                'Opportunity Status': row.get('primary_opportunity_status_label', 'Unknown'),
                 'Error Type': 'Missing Date Sold',
                 'Error Detail': 'Date Sold field is empty, null, or could not be parsed',
                 'Date Sold': 'Invalid/Missing',
                 'Row Number': idx + 2
             })
     
-    # Convert numeric columns with safe handling
-    numeric_columns = ['Acres', 'Cost Basis', 'Gross Sales Price', 'Closing Costs']
+    # Convert numeric columns with safe handling (using original field names)
+    numeric_columns = ['custom.All_Asset_Surveyed_Acres', 'custom.Asset_Cost_Basis', 
+                      'custom.Asset_Gross_Sales_Price', 'custom.Asset_Closing_Costs']
     for col in numeric_columns:
         if col in df_processed.columns:
             df_processed[col] = df_processed[col].apply(lambda x: safe_numeric_value(x, 0))
     
-    # Calculate derived fields with safe handling
-    df_processed['Days Until Sold'] = df_processed.apply(
-        lambda row: calculate_days_until_sold(row.get('Date Purchased'), row.get('Date Sold')), axis=1
+    # Calculate derived fields with safe handling (using original field names)
+    df_processed['Days_Until_Sold'] = df_processed.apply(
+        lambda row: calculate_days_until_sold(row.get('custom.Asset_Date_Purchased'), row.get('custom.Asset_Date_Sold')), axis=1
     )
     
-    df_processed['Realized Gross Profit'] = df_processed.apply(
+    df_processed['Realized_Gross_Profit'] = df_processed.apply(
         lambda row: calculate_realized_gross_profit(
-            row.get('Gross Sales Price', 0), 
-            row.get('Cost Basis', 0), 
-            row.get('Closing Costs', 0)
+            row.get('custom.Asset_Gross_Sales_Price', 0), 
+            row.get('custom.Asset_Cost_Basis', 0), 
+            row.get('custom.Asset_Closing_Costs', 0)
         ), axis=1
     )
     
-    df_processed['Realized Markup'] = df_processed.apply(
+    df_processed['Realized_Markup'] = df_processed.apply(
         lambda row: calculate_realized_markup(
-            row.get('Gross Sales Price', 0), 
-            row.get('Cost Basis', 0), 
-            row.get('Closing Costs', 0)
+            row.get('custom.Asset_Gross_Sales_Price', 0), 
+            row.get('custom.Asset_Cost_Basis', 0), 
+            row.get('custom.Asset_Closing_Costs', 0)
         ), axis=1
     )
     
-    df_processed['Realized Margin'] = df_processed.apply(
+    df_processed['Realized_Margin'] = df_processed.apply(
         lambda row: calculate_realized_margin(
-            row.get('Realized Gross Profit', 0), 
-            row.get('Gross Sales Price', 0)
+            row.get('Realized_Gross_Profit', 0), 
+            row.get('custom.Asset_Gross_Sales_Price', 0)
         ), axis=1
     )
     
     # Add quarter-year for filtering
-    df_processed['Quarter_Year'] = df_processed['Date Sold'].apply(get_quarter_year)
+    df_processed['Quarter_Year'] = df_processed['custom.Asset_Date_Sold'].apply(get_quarter_year)
+    
+    # Create display versions for UI (mapped names)
+    df_display = df_processed.copy()
+    columns_to_rename = {k: v for k, v in FIELD_MAPPING.items() if k in df_display.columns}
+    df_display = df_display.rename(columns=columns_to_rename)
+    
+    # Rename calculated fields for display
+    df_display = df_display.rename(columns={
+        'Days_Until_Sold': 'Days Until Sold',
+        'Realized_Gross_Profit': 'Realized Gross Profit',
+        'Realized_Markup': 'Realized Markup',
+        'Realized_Margin': 'Realized Margin'
+    })
     
     # Create error report DataFrame
     error_df = pd.DataFrame(error_records)
     
-    return df_processed, error_df, total_records
+    return df_processed, df_display, error_df, total_records
 
-def create_excel_download(df, filename):
-    """Create Excel file for download with proper NaN/INF handling"""
+def create_excel_download(df_original, filename):
+    """Create Excel file for download with original Close.com field names and ID column"""
     output = BytesIO()
     
     # Create a workbook with NaN/INF handling enabled
@@ -303,124 +318,138 @@ def create_excel_download(df, filename):
         'bg_color': '#FFFF99'  # Yellow background
     })
     
-    # Write headers
-    headers = ['Property Name', 'Owner', 'State', 'County', 'Acres', 'Cost Basis', 'Date Purchased',
-               'Opportunity Status', 'Days Until Sold', 'Date Sold', 'Gross Sales Price', 'Closing Costs',
-               'Realized Gross Profit', 'Realized Markup', 'Realized Margin']
+    # Headers using original Close.com field names, including ID
+    headers = ['id', 'display_name', 'custom.Asset_Owner', 'custom.All_State', 'custom.All_County', 
+               'custom.All_Asset_Surveyed_Acres', 'custom.Asset_Cost_Basis', 'custom.Asset_Date_Purchased',
+               'primary_opportunity_status_label', 'Days_Until_Sold', 'custom.Asset_Date_Sold', 
+               'custom.Asset_Gross_Sales_Price', 'custom.Asset_Closing_Costs',
+               'Realized_Gross_Profit', 'Realized_Markup', 'Realized_Margin']
     
     for col, header in enumerate(headers):
         worksheet.write(0, col, header, header_format)
     
     # Write data with safe value handling
-    for row, (_, data) in enumerate(df.iterrows(), 1):
-        # Property Name - highlight if empty
-        prop_name = str(data.get('Property Name', ''))
-        if prop_name == '' or prop_name == 'nan':
+    for row, (_, data) in enumerate(df_original.iterrows(), 1):
+        # ID field - highlight if empty
+        lead_id = str(data.get('id', ''))
+        if lead_id == '' or lead_id == 'nan':
             worksheet.write(row, 0, '', text_highlight_format)
         else:
-            worksheet.write(row, 0, prop_name)
+            worksheet.write(row, 0, lead_id)
         
-        # Owner - highlight if empty
-        owner = str(data.get('Owner', ''))
-        if owner == '' or owner == 'nan':
+        # Property Name - highlight if empty
+        prop_name = str(data.get('display_name', ''))
+        if prop_name == '' or prop_name == 'nan':
             worksheet.write(row, 1, '', text_highlight_format)
         else:
-            worksheet.write(row, 1, owner)
+            worksheet.write(row, 1, prop_name)
         
-        # State - highlight if empty
-        state = str(data.get('State', ''))
-        if state == '' or state == 'nan':
+        # Owner - highlight if empty
+        owner = str(data.get('custom.Asset_Owner', ''))
+        if owner == '' or owner == 'nan':
             worksheet.write(row, 2, '', text_highlight_format)
         else:
-            worksheet.write(row, 2, state)
+            worksheet.write(row, 2, owner)
         
-        # County - highlight if empty
-        county = str(data.get('County', ''))
-        if county == '' or county == 'nan':
+        # State - highlight if empty
+        state = str(data.get('custom.All_State', ''))
+        if state == '' or state == 'nan':
             worksheet.write(row, 3, '', text_highlight_format)
         else:
-            worksheet.write(row, 3, county)
+            worksheet.write(row, 3, state)
+        
+        # County - highlight if empty
+        county = str(data.get('custom.All_County', ''))
+        if county == '' or county == 'nan':
+            worksheet.write(row, 4, '', text_highlight_format)
+        else:
+            worksheet.write(row, 4, county)
         
         # Handle Acres with safe numeric conversion
-        acres = safe_numeric_value(data.get('Acres', 0))
+        acres = safe_numeric_value(data.get('custom.All_Asset_Surveyed_Acres', 0))
         if acres == 0:
-            worksheet.write(row, 4, 0, number_highlight_format)
+            worksheet.write(row, 5, 0, number_highlight_format)
         else:
-            worksheet.write(row, 4, acres, number_format)
+            worksheet.write(row, 5, acres, number_format)
         
         # Handle Cost Basis with safe numeric conversion
-        cost_basis = safe_numeric_value(data.get('Cost Basis', 0))
+        cost_basis = safe_numeric_value(data.get('custom.Asset_Cost_Basis', 0))
         if cost_basis == 0:
-            worksheet.write(row, 5, 0, currency_highlight_format)
+            worksheet.write(row, 6, 0, currency_highlight_format)
         else:
-            worksheet.write(row, 5, cost_basis, currency_format)
+            worksheet.write(row, 6, cost_basis, currency_format)
         
         # Handle Date Purchased with null check and highlighting
-        date_purchased = data.get('Date Purchased')
+        date_purchased = data.get('custom.Asset_Date_Purchased')
         if pd.isna(date_purchased) or date_purchased == '':
-            worksheet.write(row, 6, '', date_highlight_format)
+            worksheet.write(row, 7, '', date_highlight_format)
         else:
-            worksheet.write(row, 6, date_purchased, date_format)
+            worksheet.write(row, 7, date_purchased, date_format)
             
         # Opportunity Status - highlight if empty
-        opp_status = str(data.get('Opportunity Status', ''))
+        opp_status = str(data.get('primary_opportunity_status_label', ''))
         if opp_status == '' or opp_status == 'nan':
-            worksheet.write(row, 7, '', text_highlight_format)
+            worksheet.write(row, 8, '', text_highlight_format)
         else:
-            worksheet.write(row, 7, opp_status)
+            worksheet.write(row, 8, opp_status)
         
         # Handle Days Until Sold with safe conversion
-        days_sold = safe_int_value(data.get('Days Until Sold', 0))
+        days_sold = safe_int_value(data.get('Days_Until_Sold', 0))
         if days_sold == 0:
-            worksheet.write(row, 8, 0, number_highlight_format)
+            worksheet.write(row, 9, 0, number_highlight_format)
         else:
-            worksheet.write(row, 8, days_sold, number_format)
+            worksheet.write(row, 9, days_sold, number_format)
         
         # Handle Date Sold with null check and highlighting
-        date_sold = data.get('Date Sold')
+        date_sold = data.get('custom.Asset_Date_Sold')
         if pd.isna(date_sold) or date_sold == '':
-            worksheet.write(row, 9, '', date_highlight_format)
+            worksheet.write(row, 10, '', date_highlight_format)
         else:
-            worksheet.write(row, 9, date_sold, date_format)
+            worksheet.write(row, 10, date_sold, date_format)
         
         # Handle Gross Sales Price with safe numeric conversion
-        gross_sales = safe_numeric_value(data.get('Gross Sales Price', 0))
+        gross_sales = safe_numeric_value(data.get('custom.Asset_Gross_Sales_Price', 0))
         if gross_sales == 0:
-            worksheet.write(row, 10, 0, currency_highlight_format)
-        else:
-            worksheet.write(row, 10, gross_sales, currency_format)
-        
-        # Handle Closing Costs with safe numeric conversion
-        closing_costs = safe_numeric_value(data.get('Closing Costs', 0))
-        if closing_costs == 0:
             worksheet.write(row, 11, 0, currency_highlight_format)
         else:
-            worksheet.write(row, 11, closing_costs, currency_format)
+            worksheet.write(row, 11, gross_sales, currency_format)
         
-        # Handle Realized Gross Profit with safe numeric conversion
-        gross_profit = safe_numeric_value(data.get('Realized Gross Profit', 0))
-        if gross_profit == 0:
+        # Handle Closing Costs with safe numeric conversion
+        closing_costs = safe_numeric_value(data.get('custom.Asset_Closing_Costs', 0))
+        if closing_costs == 0:
             worksheet.write(row, 12, 0, currency_highlight_format)
         else:
-            worksheet.write(row, 12, gross_profit, currency_format)
+            worksheet.write(row, 12, closing_costs, currency_format)
+        
+        # Handle Realized Gross Profit with safe numeric conversion
+        gross_profit = safe_numeric_value(data.get('Realized_Gross_Profit', 0))
+        if gross_profit == 0:
+            worksheet.write(row, 13, 0, currency_highlight_format)
+        else:
+            worksheet.write(row, 13, gross_profit, currency_format)
         
         # Handle Realized Markup with safe numeric conversion
-        markup = safe_numeric_value(data.get('Realized Markup', 0))
+        markup = safe_numeric_value(data.get('Realized_Markup', 0))
         if markup == 0:
-            worksheet.write(row, 13, 0, percentage_highlight_format)
-        else:
-            worksheet.write(row, 13, markup / 100, percentage_format)
-        
-        # Handle Realized Margin with safe numeric conversion
-        margin = safe_numeric_value(data.get('Realized Margin', 0))
-        if margin == 0:
             worksheet.write(row, 14, 0, percentage_highlight_format)
         else:
-            worksheet.write(row, 14, margin / 100, percentage_format)
+            worksheet.write(row, 14, markup / 100, percentage_format)
+        
+        # Handle Realized Margin with safe numeric conversion
+        margin = safe_numeric_value(data.get('Realized_Margin', 0))
+        if margin == 0:
+            worksheet.write(row, 15, 0, percentage_highlight_format)
+        else:
+            worksheet.write(row, 15, margin / 100, percentage_format)
     
     # Auto-adjust column widths
     for col in range(len(headers)):
-        worksheet.set_column(col, col, 15)
+        if col == 0:  # ID column
+            worksheet.set_column(col, col, 12)
+        elif col == 1:  # Property name
+            worksheet.set_column(col, col, 25)
+        else:
+            worksheet.set_column(col, col, 15)
     
     workbook.close()
     output.seek(0)
@@ -503,7 +532,7 @@ def create_error_report_excel(error_df, total_records, processed_records, filena
     
     # Error details worksheet
     if len(error_df) > 0:
-        headers = ['Row Number', 'Property Name', 'Owner', 'Opportunity Status', 'Error Type', 'Error Detail', 'Date Sold']
+        headers = ['Row Number', 'ID', 'Property Name', 'Owner', 'Opportunity Status', 'Error Type', 'Error Detail', 'Date Sold']
         
         # Write headers
         for col, header in enumerate(headers):
@@ -512,21 +541,23 @@ def create_error_report_excel(error_df, total_records, processed_records, filena
         # Write error data with safe handling
         for row, (_, data) in enumerate(error_df.iterrows(), 1):
             error_worksheet.write(row, 0, safe_int_value(data.get('Row Number', 0)), error_format)
-            error_worksheet.write(row, 1, str(data.get('Property Name', '')), error_format)
-            error_worksheet.write(row, 2, str(data.get('Owner', '')), error_format)
-            error_worksheet.write(row, 3, str(data.get('Opportunity Status', '')), error_format)
-            error_worksheet.write(row, 4, str(data.get('Error Type', '')), error_format)
-            error_worksheet.write(row, 5, str(data.get('Error Detail', '')), error_format)
-            error_worksheet.write(row, 6, str(data.get('Date Sold', '')), error_format)
+            error_worksheet.write(row, 1, str(data.get('ID', '')), error_format)
+            error_worksheet.write(row, 2, str(data.get('Property Name', '')), error_format)
+            error_worksheet.write(row, 3, str(data.get('Owner', '')), error_format)
+            error_worksheet.write(row, 4, str(data.get('Opportunity Status', '')), error_format)
+            error_worksheet.write(row, 5, str(data.get('Error Type', '')), error_format)
+            error_worksheet.write(row, 6, str(data.get('Error Detail', '')), error_format)
+            error_worksheet.write(row, 7, str(data.get('Date Sold', '')), error_format)
         
         # Set column widths for error details
         error_worksheet.set_column(0, 0, 10)  # Row Number
-        error_worksheet.set_column(1, 1, 25)  # Property Name
-        error_worksheet.set_column(2, 2, 20)  # Owner
-        error_worksheet.set_column(3, 3, 15)  # Opportunity Status
-        error_worksheet.set_column(4, 4, 20)  # Error Type
-        error_worksheet.set_column(5, 5, 40)  # Error Detail
-        error_worksheet.set_column(6, 6, 15)  # Date Sold
+        error_worksheet.set_column(1, 1, 12)  # ID
+        error_worksheet.set_column(2, 2, 25)  # Property Name
+        error_worksheet.set_column(3, 3, 20)  # Owner
+        error_worksheet.set_column(4, 4, 15)  # Opportunity Status
+        error_worksheet.set_column(5, 5, 20)  # Error Type
+        error_worksheet.set_column(6, 6, 40)  # Error Detail
+        error_worksheet.set_column(7, 7, 15)  # Date Sold
     else:
         error_worksheet.write(0, 0, 'No errors found - all records processed successfully!', success_format)
     
@@ -611,7 +642,7 @@ def create_pdf_download(df_dict, filename):
         # Quarter title
         story.append(Paragraph(f"{quarter}", quarter_style))
         
-        # Prepare table data with wrapped headers
+        # Prepare table data with wrapped headers (using display names for PDF)
         table_headers = ['Property\nName', 'Owner', 'State', 'County', 'Acres', 'Cost\nBasis',
                         'Date\nPurchased', 'Days\nUntil Sold', 'Date\nSold', 'Gross Sales\nPrice',
                         'Closing\nCosts', 'Realized Gross\nProfit', 'Realized\nMarkup', 'Realized\nMargin']
@@ -626,7 +657,7 @@ def create_pdf_download(df_dict, filename):
             else:
                 prop_name_para = prop_name
             
-            # Safe formatting for all values
+            # Safe formatting for all values (using display column names)
             formatted_row = [
                 prop_name_para,  # Property name with wrapping
                 str(row.get('Owner', ''))[:18],  # Allow longer owner names
@@ -681,7 +712,7 @@ def create_pdf_download(df_dict, filename):
         story.append(table)
         story.append(Spacer(1, 12))
         
-        # Quarter summary statistics
+        # Quarter summary statistics (using display column names)
         stats = create_summary_stats(quarter_data)
         
         summary_data = [
@@ -774,19 +805,26 @@ def format_percentage(value):
     return f"{safe_value:.0f}%"
 
 def create_summary_stats(df):
-    """Create summary statistics with safe numeric handling"""
+    """Create summary statistics with safe numeric handling - works with display column names"""
     if len(df) == 0:
         return {}
     
-    # Safe aggregations
-    cost_basis_sum = df['Cost Basis'].apply(lambda x: safe_numeric_value(x, 0)).sum()
-    gross_sales_sum = df['Gross Sales Price'].apply(lambda x: safe_numeric_value(x, 0)).sum()
-    gross_profit_sum = df['Realized Gross Profit'].apply(lambda x: safe_numeric_value(x, 0)).sum()
+    # Safe aggregations - handle both original and display column names
+    cost_basis_col = 'Cost Basis' if 'Cost Basis' in df.columns else 'custom.Asset_Cost_Basis'
+    gross_sales_col = 'Gross Sales Price' if 'Gross Sales Price' in df.columns else 'custom.Asset_Gross_Sales_Price'
+    gross_profit_col = 'Realized Gross Profit' if 'Realized Gross Profit' in df.columns else 'Realized_Gross_Profit'
+    markup_col = 'Realized Markup' if 'Realized Markup' in df.columns else 'Realized_Markup'
+    margin_col = 'Realized Margin' if 'Realized Margin' in df.columns else 'Realized_Margin'
+    days_col = 'Days Until Sold' if 'Days Until Sold' in df.columns else 'Days_Until_Sold'
+    
+    cost_basis_sum = df[cost_basis_col].apply(lambda x: safe_numeric_value(x, 0)).sum()
+    gross_sales_sum = df[gross_sales_col].apply(lambda x: safe_numeric_value(x, 0)).sum()
+    gross_profit_sum = df[gross_profit_col].apply(lambda x: safe_numeric_value(x, 0)).sum()
     
     # Safe statistical calculations
-    markup_values = df['Realized Markup'].apply(lambda x: safe_numeric_value(x, 0))
-    margin_values = df['Realized Margin'].apply(lambda x: safe_numeric_value(x, 0))
-    days_values = df['Days Until Sold'].apply(lambda x: safe_numeric_value(x, 0))
+    markup_values = df[markup_col].apply(lambda x: safe_numeric_value(x, 0))
+    margin_values = df[margin_col].apply(lambda x: safe_numeric_value(x, 0))
+    days_values = df[days_col].apply(lambda x: safe_numeric_value(x, 0))
     
     return {
         'total_properties': len(df),
@@ -806,18 +844,20 @@ def create_summary_stats(df):
     }
 
 def main():
-    st.title("📊 Sold Property Report")
+    st.title("Sold Property Report")
     st.markdown("Generate quarterly reports for sold properties from Close.com CRM data")
     
     # Instructions
-    with st.expander("📋 Instructions", expanded=True):
+    with st.expander("Instructions", expanded=True):
         st.markdown("""
         **How to use this report:**
         1. **Export from Close.com:** Go to your Close.com CRM and export properties with "Remarkable - Sold" status
         2. **Export All Fields:** Make sure to select "All Fields" when exporting
         3. **Upload CSV:** Upload the exported CSV file below
         4. **Select Filters:** Choose which quarters and owners to include in your report
-        5. **Generate Report:** View the report online or download as Excel
+        5. **Generate Report:** View the report online or download as Excel/PDF
+        
+        **Note:** The Excel download will use original Close.com field names and include the ID field for easier data correction.
         """)
     
     # File upload
@@ -831,7 +871,7 @@ def main():
         try:
             # Load and process data
             df = pd.read_csv(uploaded_file)
-            df_processed, error_df, total_records = process_data(df)
+            df_processed, df_display, error_df, total_records = process_data(df)
             
             if len(df_processed) == 0:
                 st.warning("No sold properties found in the uploaded data.")
@@ -853,7 +893,7 @@ def main():
             
             # Show error summary if there are errors
             if len(error_df) > 0:
-                st.warning(f"⚠️ {len(error_df)} records could not be processed. Download the error report below for details.")
+                st.warning(f"Warning: {len(error_df)} records could not be processed. Download the error report below for details.")
                 
                 # Show error breakdown
                 with st.expander("View Error Summary"):
@@ -862,16 +902,16 @@ def main():
                     for error_type, count in error_counts.items():
                         st.write(f"• {error_type}: {count} records")
             else:
-                st.success(f"✅ All {total_records} records processed successfully!")
+                st.success(f"All {total_records} records processed successfully!")
             
             # Filters
-            st.subheader("📊 Report Filters")
+            st.subheader("Report Filters")
             
             col1, col2 = st.columns(2)
             
             with col1:
                 st.write("**Select Calendar Quarters:**")
-                available_quarters = sort_quarters_chronologically([q for q in df_processed['Quarter_Year'].unique() if pd.notna(q)])
+                available_quarters = sort_quarters_chronologically([q for q in df_display['Quarter_Year'].unique() if pd.notna(q)])
                 
                 # Quarter selection controls
                 quarter_col1, quarter_col2 = st.columns(2)
@@ -906,7 +946,7 @@ def main():
             
             with col2:
                 st.write("**Select Owners:**")
-                available_owners = sorted([o for o in df_processed['Owner'].unique() if pd.notna(o) and o != ''])
+                available_owners = sorted([o for o in df_display['Owner'].unique() if pd.notna(o) and o != ''])
                 
                 # Owner selection controls
                 owner_col1, owner_col2 = st.columns(2)
@@ -939,24 +979,30 @@ def main():
                     else:
                         st.session_state.owner_selections[owner] = False
             
-            # Filter data based on selections
-            filtered_df = df_processed[
-                (df_processed['Quarter_Year'].isin(selected_quarters)) &
-                (df_processed['Owner'].isin(selected_owners))
+            # Filter data based on selections (for both display and original data)
+            filtered_df_display = df_display[
+                (df_display['Quarter_Year'].isin(selected_quarters)) &
+                (df_display['Owner'].isin(selected_owners))
             ].copy()
             
-            if len(filtered_df) == 0:
+            # Also filter the original data for Excel export
+            filtered_df_original = df_processed[
+                (df_processed['Quarter_Year'].isin(selected_quarters)) &
+                (df_processed['custom.Asset_Owner'].isin(selected_owners))
+            ].copy()
+            
+            if len(filtered_df_display) == 0:
                 st.warning("No properties match your selected filters.")
                 return
             
             # Display results by quarter (in chronological order)
-            st.subheader("📈 Sold Properties Report")
+            st.subheader("Sold Properties Report")
             
             # Sort selected quarters chronologically
             sorted_selected_quarters = sort_quarters_chronologically(selected_quarters)
             
             for quarter in sorted_selected_quarters:
-                quarter_data = filtered_df[filtered_df['Quarter_Year'] == quarter].copy()
+                quarter_data = filtered_df_display[filtered_df_display['Quarter_Year'] == quarter].copy()
                 if len(quarter_data) == 0:
                     continue
                 
@@ -1029,7 +1075,7 @@ def main():
             # Overall summary
             if len(selected_quarters) > 1:
                 st.markdown("### Overall Summary")
-                overall_stats = create_summary_stats(filtered_df)
+                overall_stats = create_summary_stats(filtered_df_display)
                 
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
@@ -1057,13 +1103,13 @@ def main():
                     st.metric("Median Days to Sell", f"{safe_numeric_value(overall_stats['median_days']):.0f}")
             
             # Download section
-            st.subheader("📥 Download Reports")
+            st.subheader("Download Reports")
             
-            # Prepare data for PDF (organized by quarter in chronological order)
+            # Prepare data for PDF (organized by quarter in chronological order) - using display data
             quarter_data_dict = {}
             sorted_selected_quarters = sort_quarters_chronologically(selected_quarters)
             for quarter in sorted_selected_quarters:
-                quarter_data_dict[quarter] = filtered_df[filtered_df['Quarter_Year'] == quarter].copy()
+                quarter_data_dict[quarter] = filtered_df_display[filtered_df_display['Quarter_Year'] == quarter].copy()
             
             # Generate filenames
             current_date = datetime.now().strftime("%Y%m%d")
@@ -1071,33 +1117,34 @@ def main():
             pdf_filename = f"{current_date} Sold Property Report.pdf"
             error_filename = f"{current_date} Import Error Report.xlsx"
             
-            # Create three columns for downloads
+            # Create columns for downloads
             if len(error_df) > 0:
                 col1, col2, col3 = st.columns(3)
             else:
                 col1, col2 = st.columns(2)
             
             with col1:
-                st.write("**Excel Report**")
-                # Create Excel file
-                excel_file = create_excel_download(filtered_df, excel_filename)
+                st.write("**Excel Report (Original Field Names)**")
+                # Create Excel file using original field names and including ID
+                excel_file = create_excel_download(filtered_df_original, excel_filename)
                 
                 st.download_button(
-                    label="📄 Download Excel Report",
+                    label="Download Excel Report",
                     data=excel_file.getvalue(),
                     file_name=excel_filename,
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    help="Excel file with original Close.com field names and ID column for data correction"
                 )
             
             with col2:
                 st.write("**PDF Report (Landscape Legal)**")
                 if REPORTLAB_AVAILABLE:
-                    # Create PDF file
+                    # Create PDF file using display data
                     pdf_file = create_pdf_download(quarter_data_dict, pdf_filename)
                     
                     if pdf_file:
                         st.download_button(
-                            label="📋 Download PDF Report",
+                            label="Download PDF Report",
                             data=pdf_file.getvalue(),
                             file_name=pdf_filename,
                             mime="application/pdf"
@@ -1114,7 +1161,7 @@ def main():
                     error_file = create_error_report_excel(error_df, total_records, len(df_processed), error_filename)
                     
                     st.download_button(
-                        label="⚠️ Download Error Report",
+                        label="Download Error Report",
                         data=error_file.getvalue(),
                         file_name=error_filename,
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1130,7 +1177,7 @@ def main():
             st.write("Please make sure you've uploaded a valid CSV export from Close.com with all fields included.")
     
     else:
-        st.info("👆 Please upload your Close.com CSV export to generate the sold property report")
+        st.info("Please upload your Close.com CSV export to generate the sold property report")
 
 if __name__ == "__main__":
     main()
