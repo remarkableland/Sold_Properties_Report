@@ -319,8 +319,33 @@ def main():
                 available_quarters = sorted([q for q in df_processed['Quarter_Year'].unique() if pd.notna(q)])
                 selected_quarters = []
                 
+                # Quarter selection controls
+                quarter_col1, quarter_col2 = st.columns(2)
+                with quarter_col1:
+                    if st.button("Select All Quarters", key="select_all_quarters"):
+                        st.session_state.select_all_quarters = True
+                        st.session_state.select_none_quarters = False
+                with quarter_col2:
+                    if st.button("Select None Quarters", key="select_none_quarters"):
+                        st.session_state.select_none_quarters = True
+                        st.session_state.select_all_quarters = False
+                
+                # Initialize session state for quarters if not exists
+                if 'select_all_quarters' not in st.session_state:
+                    st.session_state.select_all_quarters = False
+                if 'select_none_quarters' not in st.session_state:
+                    st.session_state.select_none_quarters = False
+                
+                # Determine default value based on session state
+                if st.session_state.select_all_quarters:
+                    quarter_default = True
+                elif st.session_state.select_none_quarters:
+                    quarter_default = False
+                else:
+                    quarter_default = False  # Default to unselected
+                
                 for quarter in available_quarters:
-                    if st.checkbox(f"{quarter}", value=True, key=f"quarter_{quarter}"):
+                    if st.checkbox(f"{quarter}", value=quarter_default, key=f"quarter_{quarter}"):
                         selected_quarters.append(quarter)
             
             with col2:
@@ -328,8 +353,33 @@ def main():
                 available_owners = sorted([o for o in df_processed['Owner'].unique() if pd.notna(o) and o != ''])
                 selected_owners = []
                 
+                # Owner selection controls
+                owner_col1, owner_col2 = st.columns(2)
+                with owner_col1:
+                    if st.button("Select All Owners", key="select_all_owners"):
+                        st.session_state.select_all_owners = True
+                        st.session_state.select_none_owners = False
+                with owner_col2:
+                    if st.button("Select None Owners", key="select_none_owners"):
+                        st.session_state.select_none_owners = True
+                        st.session_state.select_all_owners = False
+                
+                # Initialize session state for owners if not exists
+                if 'select_all_owners' not in st.session_state:
+                    st.session_state.select_all_owners = False
+                if 'select_none_owners' not in st.session_state:
+                    st.session_state.select_none_owners = False
+                
+                # Determine default value based on session state
+                if st.session_state.select_all_owners:
+                    owner_default = True
+                elif st.session_state.select_none_owners:
+                    owner_default = False
+                else:
+                    owner_default = False  # Default to unselected
+                
                 for owner in available_owners:
-                    if st.checkbox(f"{owner}", value=True, key=f"owner_{owner}"):
+                    if st.checkbox(f"{owner}", value=owner_default, key=f"owner_{owner}"):
                         selected_owners.append(owner)
             
             # Filter data based on selections
