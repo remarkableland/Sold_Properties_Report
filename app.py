@@ -7,7 +7,7 @@ import xlsxwriter
 
 try:
     from reportlab.lib.pagesizes import letter, legal, landscape
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.platypus import SimpleDocDocument, Paragraph, Spacer, Table, TableStyle, PageBreak
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch
     from reportlab.lib import colors
@@ -207,6 +207,301 @@ def process_data(df):
     error_df = pd.DataFrame(error_records)
     
     return df_processed, error_df, total_records
+
+def create_excel_download(df, filename):
+    """Create Excel file for download"""
+    output = BytesIO()
+    
+    # Create a workbook and worksheet
+    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+    worksheet = workbook.add_worksheet('Sold Properties')
+    
+    # Define formats
+    header_format = workbook.add_format({
+        'bold': True,
+        'bg_color': '#4472C4',
+        'font_color': 'white',
+        'border': 1
+    })
+    
+    currency_format = workbook.add_format({
+        'num_format': '$#,##0',
+        'border': 1
+    })
+    
+    percentage_format = workbook.add_format({
+        'num_format': '0%',
+        'border': 1
+    })
+    
+    date_format = workbook.add_format({
+        'num_format': 'mm/dd/yyyy',
+        'border': 1
+    })
+    
+    number_format = workbook.add_format({
+        'num_format': '#,##0',
+        'border': 1
+    })
+    
+    # Highlight formats for missing/zero values
+    currency_highlight_format = workbook.add_format({
+        'num_format': '$#,##0',
+        'border': 1,
+        'bg_color': '#FFFF99'  # Yellow background
+    })
+    
+    percentage_highlight_format = workbook.add_format({
+        'num_format': '0%',
+        'border': 1,
+        'bg_color': '#FFFF99'  # Yellow background
+    })
+    
+    date_highlight_format = workbook.add_format({
+        'num_format': 'mm/dd/yyyy',
+        'border': 1,
+        'bg_color': '#FFFF99'  # Yellow background
+    })
+    
+    number_highlight_format = workbook.add_format({
+        'num_format': '#,##0',
+        'border': 1,
+        'bg_color': '#FFFF99'  # Yellow background
+    })
+    
+    text_highlight_format = workbook.add_format({
+        'border': 1,
+        'bg_color': '#FFFF99'  # Yellow background
+    })
+    
+    # Write headers
+    headers = ['Property Name', 'Owner', 'State', 'County', 'Acres', 'Cost Basis', 'Date Purchased',
+               'Opportunity Status', 'Days Until Sold', 'Date Sold', 'Gross Sales Price', 'Closing Costs',
+               'Realized Gross Profit', 'Realized Markup', 'Realized Margin']
+    
+    for col, header in enumerate(headers):
+        worksheet.write(0, col, header, header_format)
+    
+    # Write data
+    for row, (_, data) in enumerate(df.iterrows(), 1):
+        # Property Name - highlight if empty
+        prop_name = data.get('Property Name', '')
+        if prop_name == '' or pd.isna(prop_name):
+            worksheet.write(row, 0, prop_name, text_highlight_format)
+        else:
+            worksheet.write(row, 0, prop_name)
+        
+        # Owner - highlight if empty
+        owner = data.get('Owner', '')
+        if owner == '' or pd.isna(owner):
+            worksheet.write(row, 1, owner, text_highlight_format)
+        else:
+            worksheet.write(row, 1, owner)
+        
+        # State - highlight if empty
+        state = data.get('State', '')
+        if state == '' or pd.isna(state):
+            worksheet.write(row, 2, state, text_highlight_format)
+        else:
+            worksheet.write(row, 2, state)
+        
+        # County - highlight if empty
+        county = data.get('County', '')
+        if county == '' or pd.isna(county):
+            worksheet.write(row, 3, county, text_highlight_format)
+        else:
+            worksheet.write(row, 3, county)
+        
+        # Handle Acres with null/inf check and highlighting
+        acres = data.get('Acres', 0)
+        if pd.notna(acres) and np.isfinite(acres) and acres != 0:
+            worksheet.write(row, 4, acres, number_format)
+        else:
+            worksheet.write(row, 4, 0, number_highlight_format)
+        
+        # Handle Cost Basis with null/inf check and highlighting
+        cost_basis = data.get('Cost Basis', 0)
+        if pd.notna(cost_basis) and np.isfinite(cost_basis) and cost_basis != 0:
+            worksheet.write(row, 5, cost_basis, currency_format)
+        else:
+            worksheet.write(row, 5, 0, currency_highlight_format)
+        
+        # Handle Date Purchased with null check and highlighting
+        date_purchased = data.get('Date Purchased')
+        if pd.notna(date_purchased) and date_purchased != '':
+            worksheet.write(row, 6, date_purchased, date_format)
+        else:
+            worksheet.write(row, 6, '', date_highlight_format)
+            
+        # Opportunity Status - highlight if empty
+        opp_status = data.get('Opportunity Status', '')
+        if opp_status == '' or pd.isna(opp_status):
+            worksheet.write(row, 7, opp_status, text_highlight_format)
+        else:
+            worksheet.write(row, 7, opp_status)
+        
+        # Handle Days Until Sold with null/inf check and highlighting
+        days_sold = data.get('Days Until Sold', 0)
+        if pd.notna(days_sold) and np.isfinite(days_sold) and days_sold != 0:
+            worksheet.write(row, 8, int(days_sold), number_format)
+        else:
+            worksheet.write(row, 8, 0, number_highlight_format)
+        
+        # Handle Date Sold with null check and highlighting
+        date_sold = data.get('Date Sold')
+        if pd.notna(date_sold) and date_sold != '':
+            worksheet.write(row, 9, date_sold, date_format)
+        else:
+            worksheet.write(row, 9, '', date_highlight_format)
+        
+        # Handle Gross Sales Price with null/inf check and highlighting
+        gross_sales = data.get('Gross Sales Price', 0)
+        if pd.notna(gross_sales) and np.isfinite(gross_sales) and gross_sales != 0:
+            worksheet.write(row, 10, gross_sales, currency_format)
+        else:
+            worksheet.write(row, 10, 0, currency_highlight_format)
+        
+        # Handle Closing Costs with null/inf check and highlighting
+        closing_costs = data.get('Closing Costs', 0)
+        if pd.notna(closing_costs) and np.isfinite(closing_costs) and closing_costs != 0:
+            worksheet.write(row, 11, closing_costs, currency_format)
+        else:
+            worksheet.write(row, 11, 0, currency_highlight_format)
+        
+        # Handle Realized Gross Profit with null/inf check and highlighting
+        gross_profit = data.get('Realized Gross Profit', 0)
+        if pd.notna(gross_profit) and np.isfinite(gross_profit) and gross_profit != 0:
+            worksheet.write(row, 12, gross_profit, currency_format)
+        else:
+            worksheet.write(row, 12, 0, currency_highlight_format)
+        
+        # Handle Realized Markup with null/inf check and highlighting
+        markup = data.get('Realized Markup', 0)
+        if pd.notna(markup) and np.isfinite(markup) and markup != 0:
+            worksheet.write(row, 13, markup / 100, percentage_format)
+        else:
+            worksheet.write(row, 13, 0, percentage_highlight_format)
+        
+        # Handle Realized Margin with null/inf check and highlighting
+        margin = data.get('Realized Margin', 0)
+        if pd.notna(margin) and np.isfinite(margin) and margin != 0:
+            worksheet.write(row, 14, margin / 100, percentage_format)
+        else:
+            worksheet.write(row, 14, 0, percentage_highlight_format)
+    
+    # Auto-adjust column widths
+    for col in range(len(headers)):
+        worksheet.set_column(col, col, 15)
+    
+    workbook.close()
+    output.seek(0)
+    
+    return output
+
+def create_error_report_excel(error_df, total_records, processed_records, filename):
+    """Create Excel error report for records that didn't import"""
+    output = BytesIO()
+    
+    # Create a workbook and worksheet
+    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
+    
+    # Summary worksheet
+    summary_worksheet = workbook.add_worksheet('Import Summary')
+    
+    # Error details worksheet
+    error_worksheet = workbook.add_worksheet('Error Details')
+    
+    # Define formats
+    header_format = workbook.add_format({
+        'bold': True,
+        'bg_color': '#D32F2F',
+        'font_color': 'white',
+        'border': 1
+    })
+    
+    summary_header_format = workbook.add_format({
+        'bold': True,
+        'bg_color': '#1976D2',
+        'font_color': 'white',
+        'border': 1
+    })
+    
+    error_format = workbook.add_format({
+        'bg_color': '#FFEBEE',
+        'border': 1
+    })
+    
+    success_format = workbook.add_format({
+        'bg_color': '#E8F5E8',
+        'border': 1
+    })
+    
+    # Summary worksheet content
+    summary_worksheet.write(0, 0, 'Import Summary Report', summary_header_format)
+    summary_worksheet.write(2, 0, 'Metric', summary_header_format)
+    summary_worksheet.write(2, 1, 'Value', summary_header_format)
+    
+    summary_worksheet.write(3, 0, 'Total Records in CSV', success_format)
+    summary_worksheet.write(3, 1, total_records, success_format)
+    
+    summary_worksheet.write(4, 0, 'Successfully Processed', success_format)
+    summary_worksheet.write(4, 1, processed_records, success_format)
+    
+    summary_worksheet.write(5, 0, 'Records with Errors', error_format)
+    summary_worksheet.write(5, 1, len(error_df), error_format)
+    
+    success_rate = (processed_records / total_records * 100) if total_records > 0 else 0
+    summary_worksheet.write(6, 0, 'Success Rate', summary_header_format)
+    summary_worksheet.write(6, 1, f"{success_rate:.1f}%", summary_header_format)
+    
+    # Error breakdown by type
+    if len(error_df) > 0:
+        summary_worksheet.write(8, 0, 'Error Breakdown by Type', summary_header_format)
+        summary_worksheet.write(9, 0, 'Error Type', summary_header_format)
+        summary_worksheet.write(9, 1, 'Count', summary_header_format)
+        
+        error_counts = error_df['Error Type'].value_counts()
+        for idx, (error_type, count) in enumerate(error_counts.items()):
+            summary_worksheet.write(10 + idx, 0, error_type, error_format)
+            summary_worksheet.write(10 + idx, 1, count, error_format)
+    
+    # Set column widths for summary
+    summary_worksheet.set_column(0, 0, 25)
+    summary_worksheet.set_column(1, 1, 15)
+    
+    # Error details worksheet
+    if len(error_df) > 0:
+        headers = ['Row Number', 'Property Name', 'Owner', 'Opportunity Status', 'Error Type', 'Error Detail', 'Date Sold']
+        
+        # Write headers
+        for col, header in enumerate(headers):
+            error_worksheet.write(0, col, header, header_format)
+        
+        # Write error data
+        for row, (_, data) in enumerate(error_df.iterrows(), 1):
+            error_worksheet.write(row, 0, data.get('Row Number', ''), error_format)
+            error_worksheet.write(row, 1, data.get('Property Name', ''), error_format)
+            error_worksheet.write(row, 2, data.get('Owner', ''), error_format)
+            error_worksheet.write(row, 3, data.get('Opportunity Status', ''), error_format)
+            error_worksheet.write(row, 4, data.get('Error Type', ''), error_format)
+            error_worksheet.write(row, 5, data.get('Error Detail', ''), error_format)
+            error_worksheet.write(row, 6, str(data.get('Date Sold', '')), error_format)
+        
+        # Set column widths for error details
+        error_worksheet.set_column(0, 0, 10)  # Row Number
+        error_worksheet.set_column(1, 1, 25)  # Property Name
+        error_worksheet.set_column(2, 2, 20)  # Owner
+        error_worksheet.set_column(3, 3, 15)  # Opportunity Status
+        error_worksheet.set_column(4, 4, 20)  # Error Type
+        error_worksheet.set_column(5, 5, 40)  # Error Detail
+        error_worksheet.set_column(6, 6, 15)  # Date Sold
+    else:
+        error_worksheet.write(0, 0, 'No errors found - all records processed successfully!', success_format)
+    
+    workbook.close()
+    output.seek(0)
+    
+    return output
 
 def create_pdf_download(df_dict, filename):
     """Create PDF file organized by quarter"""
@@ -468,299 +763,6 @@ def create_summary_stats(df):
         'max_days': df['Days Until Sold'].max(),
         'min_days': df['Days Until Sold'].min()
     }
-
-def create_error_report_excel(error_df, total_records, processed_records, filename):
-    """Create Excel error report for records that didn't import"""
-    output = BytesIO()
-    
-    # Create a workbook and worksheet
-    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
-    
-    # Summary worksheet
-    summary_worksheet = workbook.add_worksheet('Import Summary')
-    
-    # Error details worksheet
-    error_worksheet = workbook.add_worksheet('Error Details')
-    
-    # Define formats
-    header_format = workbook.add_format({
-        'bold': True,
-        'bg_color': '#D32F2F',
-        'font_color': 'white',
-        'border': 1
-    })
-    
-    summary_header_format = workbook.add_format({
-        'bold': True,
-        'bg_color': '#1976D2',
-        'font_color': 'white',
-        'border': 1
-    })
-    
-    error_format = workbook.add_format({
-        'bg_color': '#FFEBEE',
-        'border': 1
-    })
-    
-    success_format = workbook.add_format({
-        'bg_color': '#E8F5E8',
-        'border': 1
-    })
-    
-    # Summary worksheet content
-    summary_worksheet.write(0, 0, 'Import Summary Report', summary_header_format)
-    summary_worksheet.write(2, 0, 'Metric', summary_header_format)
-    summary_worksheet.write(2, 1, 'Value', summary_header_format)
-    
-    summary_worksheet.write(3, 0, 'Total Records in CSV', success_format)
-    summary_worksheet.write(3, 1, total_records, success_format)
-    
-    summary_worksheet.write(4, 0, 'Successfully Processed', success_format)
-    summary_worksheet.write(4, 1, processed_records, success_format)
-    
-    summary_worksheet.write(5, 0, 'Records with Errors', error_format)
-    summary_worksheet.write(5, 1, len(error_df), error_format)
-    
-    success_rate = (processed_records / total_records * 100) if total_records > 0 else 0
-    summary_worksheet.write(6, 0, 'Success Rate', summary_header_format)
-    summary_worksheet.write(6, 1, f"{success_rate:.1f}%", summary_header_format)
-    
-    # Error breakdown by type
-    if len(error_df) > 0:
-        summary_worksheet.write(8, 0, 'Error Breakdown by Type', summary_header_format)
-        summary_worksheet.write(9, 0, 'Error Type', summary_header_format)
-        summary_worksheet.write(9, 1, 'Count', summary_header_format)
-        
-        error_counts = error_df['Error Type'].value_counts()
-        for idx, (error_type, count) in enumerate(error_counts.items()):
-            summary_worksheet.write(10 + idx, 0, error_type, error_format)
-            summary_worksheet.write(10 + idx, 1, count, error_format)
-    
-    # Set column widths for summary
-    summary_worksheet.set_column(0, 0, 25)
-    summary_worksheet.set_column(1, 1, 15)
-    
-    # Error details worksheet
-    if len(error_df) > 0:
-        headers = ['Row Number', 'Property Name', 'Owner', 'Opportunity Status', 'Error Type', 'Error Detail', 'Date Sold']
-        
-        # Write headers
-        for col, header in enumerate(headers):
-            error_worksheet.write(0, col, header, header_format)
-        
-        # Write error data
-        for row, (_, data) in enumerate(error_df.iterrows(), 1):
-            error_worksheet.write(row, 0, data.get('Row Number', ''), error_format)
-            error_worksheet.write(row, 1, data.get('Property Name', ''), error_format)
-            error_worksheet.write(row, 2, data.get('Owner', ''), error_format)
-            error_worksheet.write(row, 3, data.get('Opportunity Status', ''), error_format)
-            error_worksheet.write(row, 4, data.get('Error Type', ''), error_format)
-            error_worksheet.write(row, 5, data.get('Error Detail', ''), error_format)
-            error_worksheet.write(row, 6, str(data.get('Date Sold', '')), error_format)
-        
-        # Set column widths for error details
-        error_worksheet.set_column(0, 0, 10)  # Row Number
-        error_worksheet.set_column(1, 1, 25)  # Property Name
-        error_worksheet.set_column(2, 2, 20)  # Owner
-        error_worksheet.set_column(3, 3, 15)  # Opportunity Status
-        error_worksheet.set_column(4, 4, 20)  # Error Type
-        error_worksheet.set_column(5, 5, 40)  # Error Detail
-        error_worksheet.set_column(6, 6, 15)  # Date Sold
-    else:
-        error_worksheet.write(0, 0, 'No errors found - all records processed successfully!', success_format)
-    
-    workbook.close()
-    output.seek(0)
-    
-    return output
-    """Create Excel file for download"""
-    output = BytesIO()
-    
-    # Create a workbook and worksheet
-    workbook = xlsxwriter.Workbook(output, {'in_memory': True})
-    worksheet = workbook.add_worksheet('Sold Properties')
-    
-    # Define formats
-    header_format = workbook.add_format({
-        'bold': True,
-        'bg_color': '#4472C4',
-        'font_color': 'white',
-        'border': 1
-    })
-    
-    currency_format = workbook.add_format({
-        'num_format': '$#,##0',
-        'border': 1
-    })
-    
-    percentage_format = workbook.add_format({
-        'num_format': '0%',
-        'border': 1
-    })
-    
-    date_format = workbook.add_format({
-        'num_format': 'mm/dd/yyyy',
-        'border': 1
-    })
-    
-    number_format = workbook.add_format({
-        'num_format': '#,##0',
-        'border': 1
-    })
-    
-    # Highlight formats for missing/zero values
-    currency_highlight_format = workbook.add_format({
-        'num_format': '$#,##0',
-        'border': 1,
-        'bg_color': '#FFFF99'  # Yellow background
-    })
-    
-    percentage_highlight_format = workbook.add_format({
-        'num_format': '0%',
-        'border': 1,
-        'bg_color': '#FFFF99'  # Yellow background
-    })
-    
-    date_highlight_format = workbook.add_format({
-        'num_format': 'mm/dd/yyyy',
-        'border': 1,
-        'bg_color': '#FFFF99'  # Yellow background
-    })
-    
-    number_highlight_format = workbook.add_format({
-        'num_format': '#,##0',
-        'border': 1,
-        'bg_color': '#FFFF99'  # Yellow background
-    })
-    
-    text_highlight_format = workbook.add_format({
-        'border': 1,
-        'bg_color': '#FFFF99'  # Yellow background
-    })
-    
-    # Write headers
-    headers = ['Property Name', 'Owner', 'State', 'County', 'Acres', 'Cost Basis', 'Date Purchased',
-               'Opportunity Status', 'Days Until Sold', 'Date Sold', 'Gross Sales Price', 'Closing Costs',
-               'Realized Gross Profit', 'Realized Markup', 'Realized Margin']
-    
-    for col, header in enumerate(headers):
-        worksheet.write(0, col, header, header_format)
-    
-    # Write data
-    for row, (_, data) in enumerate(df.iterrows(), 1):
-        # Property Name - highlight if empty
-        prop_name = data.get('Property Name', '')
-        if prop_name == '' or pd.isna(prop_name):
-            worksheet.write(row, 0, prop_name, text_highlight_format)
-        else:
-            worksheet.write(row, 0, prop_name)
-        
-        # Owner - highlight if empty
-        owner = data.get('Owner', '')
-        if owner == '' or pd.isna(owner):
-            worksheet.write(row, 1, owner, text_highlight_format)
-        else:
-            worksheet.write(row, 1, owner)
-        
-        # State - highlight if empty
-        state = data.get('State', '')
-        if state == '' or pd.isna(state):
-            worksheet.write(row, 2, state, text_highlight_format)
-        else:
-            worksheet.write(row, 2, state)
-        
-        # County - highlight if empty
-        county = data.get('County', '')
-        if county == '' or pd.isna(county):
-            worksheet.write(row, 3, county, text_highlight_format)
-        else:
-            worksheet.write(row, 3, county)
-        
-        # Handle Acres with null/inf check and highlighting
-        acres = data.get('Acres', 0)
-        if pd.notna(acres) and np.isfinite(acres) and acres != 0:
-            worksheet.write(row, 4, acres, number_format)
-        else:
-            worksheet.write(row, 4, 0, number_highlight_format)
-        
-        # Handle Cost Basis with null/inf check and highlighting
-        cost_basis = data.get('Cost Basis', 0)
-        if pd.notna(cost_basis) and np.isfinite(cost_basis) and cost_basis != 0:
-            worksheet.write(row, 5, cost_basis, currency_format)
-        else:
-            worksheet.write(row, 5, 0, currency_highlight_format)
-        
-        # Handle Date Purchased with null check and highlighting
-        date_purchased = data.get('Date Purchased')
-        if pd.notna(date_purchased) and date_purchased != '':
-            worksheet.write(row, 6, date_purchased, date_format)
-        else:
-            worksheet.write(row, 6, '', date_highlight_format)
-            
-        # Opportunity Status - highlight if empty
-        opp_status = data.get('Opportunity Status', '')
-        if opp_status == '' or pd.isna(opp_status):
-            worksheet.write(row, 7, opp_status, text_highlight_format)
-        else:
-            worksheet.write(row, 7, opp_status)
-        
-        # Handle Days Until Sold with null/inf check and highlighting
-        days_sold = data.get('Days Until Sold', 0)
-        if pd.notna(days_sold) and np.isfinite(days_sold) and days_sold != 0:
-            worksheet.write(row, 8, int(days_sold), number_format)
-        else:
-            worksheet.write(row, 8, 0, number_highlight_format)
-        
-        # Handle Date Sold with null check and highlighting
-        date_sold = data.get('Date Sold')
-        if pd.notna(date_sold) and date_sold != '':
-            worksheet.write(row, 9, date_sold, date_format)
-        else:
-            worksheet.write(row, 9, '', date_highlight_format)
-        
-        # Handle Gross Sales Price with null/inf check and highlighting
-        gross_sales = data.get('Gross Sales Price', 0)
-        if pd.notna(gross_sales) and np.isfinite(gross_sales) and gross_sales != 0:
-            worksheet.write(row, 10, gross_sales, currency_format)
-        else:
-            worksheet.write(row, 10, 0, currency_highlight_format)
-        
-        # Handle Closing Costs with null/inf check and highlighting
-        closing_costs = data.get('Closing Costs', 0)
-        if pd.notna(closing_costs) and np.isfinite(closing_costs) and closing_costs != 0:
-            worksheet.write(row, 11, closing_costs, currency_format)
-        else:
-            worksheet.write(row, 11, 0, currency_highlight_format)
-        
-        # Handle Realized Gross Profit with null/inf check and highlighting
-        gross_profit = data.get('Realized Gross Profit', 0)
-        if pd.notna(gross_profit) and np.isfinite(gross_profit) and gross_profit != 0:
-            worksheet.write(row, 12, gross_profit, currency_format)
-        else:
-            worksheet.write(row, 12, 0, currency_highlight_format)
-        
-        # Handle Realized Markup with null/inf check and highlighting
-        markup = data.get('Realized Markup', 0)
-        if pd.notna(markup) and np.isfinite(markup) and markup != 0:
-            worksheet.write(row, 13, markup / 100, percentage_format)
-        else:
-            worksheet.write(row, 13, 0, percentage_highlight_format)
-        
-        # Handle Realized Margin with null/inf check and highlighting
-        margin = data.get('Realized Margin', 0)
-        if pd.notna(margin) and np.isfinite(margin) and margin != 0:
-            worksheet.write(row, 14, margin / 100, percentage_format)
-        else:
-            worksheet.write(row, 14, 0, percentage_highlight_format)
-    
-    # Auto-adjust column widths
-    for col in range(len(headers)):
-        worksheet.set_column(col, col, 15)
-    
-    workbook.close()
-    output.seek(0)
-    
-    return output
 
 def main():
     st.title("📊 Sold Property Report")
