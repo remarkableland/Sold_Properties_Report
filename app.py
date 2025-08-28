@@ -7,7 +7,7 @@ import xlsxwriter
 
 try:
     from reportlab.lib.pagesizes import letter, legal, landscape
-    from reportlab.platypus import SimpleDocDocument, Paragraph, Spacer, Table, TableStyle, PageBreak
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch
     from reportlab.lib import colors
