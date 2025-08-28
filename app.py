@@ -348,6 +348,12 @@ def format_currency(value):
         return "$0"
     return f"${value:,.0f}"
 
+def format_percentage(value):
+    """Format value as percentage"""
+    if pd.isna(value):
+        return "0%"
+    return f"{value:.0f}%"
+
 def create_summary_stats(df):
     """Create summary statistics"""
     if len(df) == 0:
