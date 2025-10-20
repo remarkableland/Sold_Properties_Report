@@ -951,68 +951,62 @@ def main():
             with col1:
                 st.write("**Select Calendar Quarters:**")
                 available_quarters = sort_quarters_chronologically([q for q in df_display['Quarter_Year'].unique() if pd.notna(q)])
-                
+
+                # Initialize selected quarters set if not exists
+                if 'selected_quarters_set' not in st.session_state:
+                    st.session_state.selected_quarters_set = set()
+
                 # Quarter selection controls
                 quarter_col1, quarter_col2 = st.columns(2)
                 with quarter_col1:
-                    select_all_quarters = st.button("Select All Quarters", key="btn_select_all_quarters")
+                    if st.button("Select All Quarters", key="btn_select_all_quarters"):
+                        st.session_state.selected_quarters_set = set(available_quarters)
+                        st.rerun()
                 with quarter_col2:
-                    select_none_quarters = st.button("Select None Quarters", key="btn_select_none_quarters")
-
-                # Initialize checkbox states if not exists
-                for q in available_quarters:
-                    if f"cb_quarter_{q}" not in st.session_state:
-                        st.session_state[f"cb_quarter_{q}"] = False
-
-                # Handle button clicks - update checkbox states directly
-                if select_all_quarters:
-                    for q in available_quarters:
-                        st.session_state[f"cb_quarter_{q}"] = True
-                    st.rerun()
-
-                if select_none_quarters:
-                    for q in available_quarters:
-                        st.session_state[f"cb_quarter_{q}"] = False
-                    st.rerun()
+                    if st.button("Select None Quarters", key="btn_select_none_quarters"):
+                        st.session_state.selected_quarters_set = set()
+                        st.rerun()
 
                 # Display checkboxes and collect selected quarters
                 selected_quarters = []
                 for quarter in available_quarters:
-                    if st.checkbox(f"{quarter}", key=f"cb_quarter_{quarter}"):
+                    # Checkbox is checked if quarter is in the selected set
+                    is_selected = quarter in st.session_state.selected_quarters_set
+                    if st.checkbox(f"{quarter}", value=is_selected, key=f"cb_quarter_{quarter}"):
                         selected_quarters.append(quarter)
+                        st.session_state.selected_quarters_set.add(quarter)
+                    else:
+                        st.session_state.selected_quarters_set.discard(quarter)
             
             with col2:
                 st.write("**Select Owners:**")
                 available_owners = sorted([o for o in df_display['Owner'].unique() if pd.notna(o) and o != ''])
-                
+
+                # Initialize selected owners set if not exists
+                if 'selected_owners_set' not in st.session_state:
+                    st.session_state.selected_owners_set = set()
+
                 # Owner selection controls
                 owner_col1, owner_col2 = st.columns(2)
                 with owner_col1:
-                    select_all_owners = st.button("Select All Owners", key="btn_select_all_owners")
+                    if st.button("Select All Owners", key="btn_select_all_owners"):
+                        st.session_state.selected_owners_set = set(available_owners)
+                        st.rerun()
                 with owner_col2:
-                    select_none_owners = st.button("Select None Owners", key="btn_select_none_owners")
-
-                # Initialize checkbox states if not exists
-                for o in available_owners:
-                    if f"cb_owner_{o}" not in st.session_state:
-                        st.session_state[f"cb_owner_{o}"] = False
-
-                # Handle button clicks - update checkbox states directly
-                if select_all_owners:
-                    for o in available_owners:
-                        st.session_state[f"cb_owner_{o}"] = True
-                    st.rerun()
-
-                if select_none_owners:
-                    for o in available_owners:
-                        st.session_state[f"cb_owner_{o}"] = False
-                    st.rerun()
+                    if st.button("Select None Owners", key="btn_select_none_owners"):
+                        st.session_state.selected_owners_set = set()
+                        st.rerun()
 
                 # Display checkboxes and collect selected owners
                 selected_owners = []
                 for owner in available_owners:
-                    if st.checkbox(f"{owner}", key=f"cb_owner_{owner}"):
+                    # Checkbox is checked if owner is in the selected set
+                    is_selected = owner in st.session_state.selected_owners_set
+                    if st.checkbox(f"{owner}", value=is_selected, key=f"cb_owner_{owner}"):
                         selected_owners.append(owner)
+                        st.session_state.selected_owners_set.add(owner)
+                    else:
+                        st.session_state.selected_owners_set.discard(owner)
             
             # Filter data based on selections (for both display and original data)
             filtered_df_display = df_display[
