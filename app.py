@@ -958,17 +958,6 @@ def main():
                 st.write("**Select Calendar Quarters:**")
                 available_quarters = sort_quarters_chronologically([q for q in df_display['Quarter_Year'].unique() if pd.notna(q)])
                 
-                # Quarter selection controls
-                quarter_col1, quarter_col2 = st.columns(2)
-                with quarter_col1:
-                    if st.button("Select All Quarters", key="btn_select_all_quarters"):
-                        st.session_state.selected_quarters = available_quarters.copy()
-                        st.rerun()
-                with quarter_col2:
-                    if st.button("Select None Quarters", key="btn_select_none_quarters"):
-                        st.session_state.selected_quarters = []
-                        st.rerun()
-                
                 # Multiselect for quarters
                 selected_quarters = st.multiselect(
                     "Choose quarters:",
@@ -982,17 +971,6 @@ def main():
             with col2:
                 st.write("**Select Owners:**")
                 available_owners = sorted([o for o in df_display['Owner'].unique() if pd.notna(o) and o != ''])
-                
-                # Owner selection controls
-                owner_col1, owner_col2 = st.columns(2)
-                with owner_col1:
-                    if st.button("Select All Owners", key="btn_select_all_owners"):
-                        st.session_state.selected_owners = available_owners.copy()
-                        st.rerun()
-                with owner_col2:
-                    if st.button("Select None Owners", key="btn_select_none_owners"):
-                        st.session_state.selected_owners = []
-                        st.rerun()
                 
                 # Multiselect for owners
                 selected_owners = st.multiselect(
