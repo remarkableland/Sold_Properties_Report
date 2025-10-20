@@ -714,14 +714,15 @@ def main():
                 return
             
             # Filter both display and original dataframes
+            # Convert to string to avoid type comparison issues
             filtered_df_display = df_display[
-                (df_display['Quarter_Year'].isin(selected_quarters)) &
-                (df_display['Owner'].isin(selected_owners))
+                (df_display['Quarter_Year'].astype(str).isin([str(q) for q in selected_quarters])) &
+                (df_display['Owner'].astype(str).isin([str(o) for o in selected_owners]))
             ].copy()
             
             filtered_df_original = df_original[
-                (df_original['Quarter_Year'].isin(selected_quarters)) &
-                (df_original['custom.Asset_Owner'].isin(selected_owners))
+                (df_original['Quarter_Year'].astype(str).isin([str(q) for q in selected_quarters])) &
+                (df_original['custom.Asset_Owner'].astype(str).isin([str(o) for o in selected_owners]))
             ].copy()
             
             if len(filtered_df_display) == 0:
@@ -734,7 +735,8 @@ def main():
             # Process each selected quarter in chronological order
             sorted_selected_quarters = sort_quarters_chronologically(selected_quarters)
             for quarter in sorted_selected_quarters:
-                quarter_data = filtered_df_display[filtered_df_display['Quarter_Year'] == quarter].copy()
+                # Use string comparison to avoid type mismatch
+                quarter_data = filtered_df_display[filtered_df_display['Quarter_Year'].astype(str) == str(quarter)].copy()
                 
                 if len(quarter_data) == 0:
                     continue
@@ -876,7 +878,8 @@ def main():
             quarter_data_dict = {}
             sorted_selected_quarters = sort_quarters_chronologically(selected_quarters)
             for quarter in sorted_selected_quarters:
-                quarter_data_dict[quarter] = filtered_df_display[filtered_df_display['Quarter_Year'] == quarter].copy()
+                # Use string comparison to avoid type mismatch
+                quarter_data_dict[quarter] = filtered_df_display[filtered_df_display['Quarter_Year'].astype(str) == str(quarter)].copy()
             
             # Generate filenames
             current_date = datetime.now().strftime("%Y%m%d")
