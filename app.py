@@ -958,32 +958,28 @@ def main():
                     select_all_quarters = st.button("Select All Quarters", key="btn_select_all_quarters")
                 with quarter_col2:
                     select_none_quarters = st.button("Select None Quarters", key="btn_select_none_quarters")
-                
-                # Initialize session state for quarter selections if not exists
-                if 'quarter_selections' not in st.session_state:
-                    st.session_state.quarter_selections = {q: False for q in available_quarters}
-                
-                # Handle button clicks
+
+                # Initialize checkbox states if not exists
+                for q in available_quarters:
+                    if f"cb_quarter_{q}" not in st.session_state:
+                        st.session_state[f"cb_quarter_{q}"] = False
+
+                # Handle button clicks - update checkbox states directly
                 if select_all_quarters:
                     for q in available_quarters:
-                        st.session_state.quarter_selections[q] = True
+                        st.session_state[f"cb_quarter_{q}"] = True
                     st.rerun()
 
                 if select_none_quarters:
                     for q in available_quarters:
-                        st.session_state.quarter_selections[q] = False
+                        st.session_state[f"cb_quarter_{q}"] = False
                     st.rerun()
-                
+
                 # Display checkboxes and collect selected quarters
                 selected_quarters = []
                 for quarter in available_quarters:
-                    # Use session state value if it exists, otherwise default to False
-                    current_value = st.session_state.quarter_selections.get(quarter, False)
-                    if st.checkbox(f"{quarter}", value=current_value, key=f"cb_quarter_{quarter}"):
+                    if st.checkbox(f"{quarter}", key=f"cb_quarter_{quarter}"):
                         selected_quarters.append(quarter)
-                        st.session_state.quarter_selections[quarter] = True
-                    else:
-                        st.session_state.quarter_selections[quarter] = False
             
             with col2:
                 st.write("**Select Owners:**")
@@ -995,32 +991,28 @@ def main():
                     select_all_owners = st.button("Select All Owners", key="btn_select_all_owners")
                 with owner_col2:
                     select_none_owners = st.button("Select None Owners", key="btn_select_none_owners")
-                
-                # Initialize session state for owner selections if not exists
-                if 'owner_selections' not in st.session_state:
-                    st.session_state.owner_selections = {o: False for o in available_owners}
-                
-                # Handle button clicks
+
+                # Initialize checkbox states if not exists
+                for o in available_owners:
+                    if f"cb_owner_{o}" not in st.session_state:
+                        st.session_state[f"cb_owner_{o}"] = False
+
+                # Handle button clicks - update checkbox states directly
                 if select_all_owners:
                     for o in available_owners:
-                        st.session_state.owner_selections[o] = True
+                        st.session_state[f"cb_owner_{o}"] = True
                     st.rerun()
 
                 if select_none_owners:
                     for o in available_owners:
-                        st.session_state.owner_selections[o] = False
+                        st.session_state[f"cb_owner_{o}"] = False
                     st.rerun()
-                
+
                 # Display checkboxes and collect selected owners
                 selected_owners = []
                 for owner in available_owners:
-                    # Use session state value if it exists, otherwise default to False
-                    current_value = st.session_state.owner_selections.get(owner, False)
-                    if st.checkbox(f"{owner}", value=current_value, key=f"cb_owner_{owner}"):
+                    if st.checkbox(f"{owner}", key=f"cb_owner_{owner}"):
                         selected_owners.append(owner)
-                        st.session_state.owner_selections[owner] = True
-                    else:
-                        st.session_state.owner_selections[owner] = False
             
             # Filter data based on selections (for both display and original data)
             filtered_df_display = df_display[
