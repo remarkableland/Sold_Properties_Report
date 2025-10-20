@@ -173,10 +173,10 @@ def process_data(df):
                 'Row Number': idx + 2
             })
         
-        # Filter to only "Sold" records
+        # Filter to only sold properties
         df_processed = df_processed[df_processed['primary_opportunity_status_label'] == 'Sold'].copy()
     
-    # Track records with missing sold date
+    # Track records with missing or invalid Date Sold
     if 'custom.Asset_Date_Sold' in df_processed.columns:
         missing_date_mask = df_processed['custom.Asset_Date_Sold'].isna()
         missing_date_records = df_processed[missing_date_mask].copy()
@@ -188,280 +188,400 @@ def process_data(df):
                 'Owner': row.get('custom.Asset_Owner', 'Unknown'),
                 'Opportunity Status': row.get('primary_opportunity_status_label', 'Unknown'),
                 'Error Type': 'Missing Date Sold',
-                'Error Detail': 'Date Sold field is empty or null',
-                'Date Sold': 'NULL/Missing',
+                'Error Detail': 'Date Sold field is empty, null, or could not be parsed',
+                'Date Sold': 'Invalid/Missing',
                 'Row Number': idx + 2
             })
-        
-        # Remove records with missing sold date
-        df_processed = df_processed[~missing_date_mask].copy()
     
-    # Calculate derived fields (using original field names)
+    # Convert numeric columns with safe handling (using original field names)
+    numeric_columns = ['custom.All_Asset_Surveyed_Acres', 'custom.Asset_Cost_Basis', 
+                      'custom.Asset_Gross_Sales_Price', 'custom.Asset_Closing_Costs']
+    for col in numeric_columns:
+        if col in df_processed.columns:
+            df_processed[col] = df_processed[col].apply(lambda x: safe_numeric_value(x, 0))
+    
+    # Calculate derived fields with safe handling (using original field names)
     df_processed['Days_Until_Sold'] = df_processed.apply(
-        lambda x: calculate_days_until_sold(x['custom.Asset_Date_Purchased'], x['custom.Asset_Date_Sold']),
-        axis=1
+        lambda row: calculate_days_until_sold(row.get('custom.Asset_Date_Purchased'), row.get('custom.Asset_Date_Sold')), axis=1
     )
     
     df_processed['Realized_Gross_Profit'] = df_processed.apply(
-        lambda x: calculate_realized_gross_profit(
-            x.get('custom.Asset_Gross_Sales_Price', 0),
-            x.get('custom.Asset_Cost_Basis', 0),
-            x.get('custom.Asset_Closing_Costs', 0)
-        ),
-        axis=1
+        lambda row: calculate_realized_gross_profit(
+            row.get('custom.Asset_Gross_Sales_Price', 0), 
+            row.get('custom.Asset_Cost_Basis', 0), 
+            row.get('custom.Asset_Closing_Costs', 0)
+        ), axis=1
     )
     
     df_processed['Realized_Markup'] = df_processed.apply(
-        lambda x: calculate_realized_markup(
-            x.get('custom.Asset_Gross_Sales_Price', 0),
-            x.get('custom.Asset_Cost_Basis', 0),
-            x.get('custom.Asset_Closing_Costs', 0)
-        ),
-        axis=1
+        lambda row: calculate_realized_markup(
+            row.get('custom.Asset_Gross_Sales_Price', 0), 
+            row.get('custom.Asset_Cost_Basis', 0), 
+            row.get('custom.Asset_Closing_Costs', 0)
+        ), axis=1
     )
     
     df_processed['Realized_Margin'] = df_processed.apply(
-        lambda x: calculate_realized_margin(
-            x.get('Realized_Gross_Profit', 0),
-            x.get('custom.Asset_Gross_Sales_Price', 0)
-        ),
-        axis=1
+        lambda row: calculate_realized_margin(
+            row.get('Realized_Gross_Profit', 0), 
+            row.get('custom.Asset_Gross_Sales_Price', 0)
+        ), axis=1
     )
     
-    # Add quarter/year for grouping
+    # Add quarter-year for filtering
     df_processed['Quarter_Year'] = df_processed['custom.Asset_Date_Sold'].apply(get_quarter_year)
     
-    # Create error dataframe
+    # Create display versions for UI (mapped names)
+    df_display = df_processed.copy()
+    columns_to_rename = {k: v for k, v in FIELD_MAPPING.items() if k in df_display.columns}
+    df_display = df_display.rename(columns=columns_to_rename)
+    
+    # Rename calculated fields for display
+    df_display = df_display.rename(columns={
+        'Days_Until_Sold': 'Days Until Sold',
+        'Realized_Gross_Profit': 'Realized Gross Profit',
+        'Realized_Markup': 'Realized Markup',
+        'Realized_Margin': 'Realized Margin'
+    })
+    
+    # Create error report DataFrame
     error_df = pd.DataFrame(error_records)
     
-    # Return both the processed data and error report
-    return df_processed, error_df, total_records
+    return df_processed, df_display, error_df, total_records
 
-def create_summary_stats(df):
-    """Create summary statistics for a dataframe"""
-    # Handle empty dataframe
-    if len(df) == 0:
-        return {
-            'total_properties': 0,
-            'total_gross_sales': 0,
-            'total_cost_basis': 0,
-            'total_closing_costs': 0,
-            'total_gross_profit': 0,
-            'average_markup': 0,
-            'median_markup': 0,
-            'average_margin': 0,
-            'median_margin': 0,
-            'average_days': 0,
-            'median_days': 0,
-            'max_days': 0,
-            'min_days': 0
-        }
-    
-    # Use original column names for calculations
-    col_gross_sales = 'custom.Asset_Gross_Sales_Price' if 'custom.Asset_Gross_Sales_Price' in df.columns else 'Gross Sales Price'
-    col_cost_basis = 'custom.Asset_Cost_Basis' if 'custom.Asset_Cost_Basis' in df.columns else 'Cost Basis'
-    col_closing_costs = 'custom.Asset_Closing_Costs' if 'custom.Asset_Closing_Costs' in df.columns else 'Closing Costs'
-    col_gross_profit = 'Realized_Gross_Profit' if 'Realized_Gross_Profit' in df.columns else 'Realized Gross Profit'
-    col_markup = 'Realized_Markup' if 'Realized_Markup' in df.columns else 'Realized Markup'
-    col_margin = 'Realized_Margin' if 'Realized_Margin' in df.columns else 'Realized Margin'
-    col_days = 'Days_Until_Sold' if 'Days_Until_Sold' in df.columns else 'Days Until Sold'
-    
-    return {
-        'total_properties': len(df),
-        'total_gross_sales': safe_numeric_value(df[col_gross_sales].sum()) if col_gross_sales in df.columns else 0,
-        'total_cost_basis': safe_numeric_value(df[col_cost_basis].sum()) if col_cost_basis in df.columns else 0,
-        'total_closing_costs': safe_numeric_value(df[col_closing_costs].sum()) if col_closing_costs in df.columns else 0,
-        'total_gross_profit': safe_numeric_value(df[col_gross_profit].sum()) if col_gross_profit in df.columns else 0,
-        'average_markup': safe_numeric_value(df[col_markup].mean()) if col_markup in df.columns else 0,
-        'median_markup': safe_numeric_value(df[col_markup].median()) if col_markup in df.columns else 0,
-        'average_margin': safe_numeric_value(df[col_margin].mean()) if col_margin in df.columns else 0,
-        'median_margin': safe_numeric_value(df[col_margin].median()) if col_margin in df.columns else 0,
-        'average_days': safe_numeric_value(df[col_days].mean()) if col_days in df.columns else 0,
-        'median_days': safe_numeric_value(df[col_days].median()) if col_days in df.columns else 0,
-        'max_days': safe_numeric_value(df[col_days].max()) if col_days in df.columns else 0,
-        'min_days': safe_numeric_value(df[col_days].min()) if col_days in df.columns else 0
-    }
-
-def format_currency(value):
-    """Format number as currency"""
-    value = safe_numeric_value(value, 0)
-    return f"${value:,.0f}"
-
-def format_percentage(value):
-    """Format number as percentage"""
-    value = safe_numeric_value(value, 0)
-    return f"{value:.1f}%"
-
-def create_excel_download(df, filename):
-    """Create Excel file for download with original Close.com field names and ID"""
+def create_excel_download(df_original, filename):
+    """Create Excel file for download with original Close.com field names and ID column"""
     output = BytesIO()
     
-    # Define the desired column order
-    column_order = [
-        'id',  # Keep ID first for data correction purposes
-        'display_name',
-        'custom.Asset_Owner',
-        'custom.All_State',
-        'custom.All_County',
-        'custom.All_Asset_Surveyed_Acres',
-        'custom.Asset_Cost_Basis',
-        'custom.Asset_Date_Purchased',
-        'custom.Asset_Date_Sold',
-        'custom.Asset_Gross_Sales_Price',
-        'custom.Asset_Closing_Costs',
-        'Days_Until_Sold',
-        'Realized_Gross_Profit',
-        'Realized_Markup',
-        'Realized_Margin',
-        'Quarter_Year'
-    ]
+    # Create a workbook with NaN/INF handling enabled
+    workbook = xlsxwriter.Workbook(output, {
+        'in_memory': True,
+        'nan_inf_to_errors': True  # This option handles NaN/INF values
+    })
+    worksheet = workbook.add_worksheet('Sold Properties')
     
-    # Filter to only include columns that exist in the dataframe
-    existing_columns = [col for col in column_order if col in df.columns]
+    # Define formats
+    header_format = workbook.add_format({
+        'bold': True,
+        'bg_color': '#4472C4',
+        'font_color': 'white',
+        'border': 1
+    })
     
-    # Reorder the dataframe
-    df_export = df[existing_columns].copy()
+    currency_format = workbook.add_format({
+        'num_format': '$#,##0',
+        'border': 1
+    })
     
-    # Sort by Date Sold (most recent first)
-    if 'custom.Asset_Date_Sold' in df_export.columns:
-        df_export = df_export.sort_values('custom.Asset_Date_Sold', ascending=False)
+    percentage_format = workbook.add_format({
+        'num_format': '0%',
+        'border': 1
+    })
     
-    # Convert dates to strings for Excel
-    date_columns = ['custom.Asset_Date_Purchased', 'custom.Asset_Date_Sold']
-    for col in date_columns:
-        if col in df_export.columns:
-            df_export[col] = df_export[col].apply(
-                lambda x: x.strftime('%m/%d/%Y') if pd.notna(x) else ''
-            )
+    date_format = workbook.add_format({
+        'num_format': 'mm/dd/yyyy',
+        'border': 1
+    })
     
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df_export.to_excel(writer, index=False, sheet_name='Sold Properties')
+    number_format = workbook.add_format({
+        'num_format': '#,##0',
+        'border': 1
+    })
+    
+    # Highlight formats for missing/zero values
+    currency_highlight_format = workbook.add_format({
+        'num_format': '$#,##0',
+        'border': 1,
+        'bg_color': '#FFFF99'  # Yellow background
+    })
+    
+    percentage_highlight_format = workbook.add_format({
+        'num_format': '0%',
+        'border': 1,
+        'bg_color': '#FFFF99'  # Yellow background
+    })
+    
+    date_highlight_format = workbook.add_format({
+        'num_format': 'mm/dd/yyyy',
+        'border': 1,
+        'bg_color': '#FFFF99'  # Yellow background
+    })
+    
+    number_highlight_format = workbook.add_format({
+        'num_format': '#,##0',
+        'border': 1,
+        'bg_color': '#FFFF99'  # Yellow background
+    })
+    
+    text_highlight_format = workbook.add_format({
+        'border': 1,
+        'bg_color': '#FFFF99'  # Yellow background
+    })
+    
+    # Headers using original Close.com field names, including ID
+    headers = ['id', 'display_name', 'custom.Asset_Owner', 'custom.All_State', 'custom.All_County', 
+               'custom.All_Asset_Surveyed_Acres', 'custom.Asset_Cost_Basis', 'custom.Asset_Date_Purchased',
+               'primary_opportunity_status_label', 'Days_Until_Sold', 'custom.Asset_Date_Sold', 
+               'custom.Asset_Gross_Sales_Price', 'custom.Asset_Closing_Costs',
+               'Realized_Gross_Profit', 'Realized_Markup', 'Realized_Margin']
+    
+    for col, header in enumerate(headers):
+        worksheet.write(0, col, header, header_format)
+    
+    # Write data with safe value handling
+    for row, (_, data) in enumerate(df_original.iterrows(), 1):
+        # ID field - highlight if empty
+        lead_id = str(data.get('id', ''))
+        if lead_id == '' or lead_id == 'nan':
+            worksheet.write(row, 0, '', text_highlight_format)
+        else:
+            worksheet.write(row, 0, lead_id)
         
-        # Get workbook and worksheet
-        workbook = writer.book
-        worksheet = writer.sheets['Sold Properties']
+        # Property Name - highlight if empty
+        prop_name = str(data.get('display_name', ''))
+        if prop_name == '' or prop_name == 'nan':
+            worksheet.write(row, 1, '', text_highlight_format)
+        else:
+            worksheet.write(row, 1, prop_name)
         
-        # Define formats
-        header_format = workbook.add_format({
-            'bold': True,
-            'bg_color': '#366092',
-            'font_color': 'white',
-            'border': 1
-        })
+        # Owner - highlight if empty
+        owner = str(data.get('custom.Asset_Owner', ''))
+        if owner == '' or owner == 'nan':
+            worksheet.write(row, 2, '', text_highlight_format)
+        else:
+            worksheet.write(row, 2, owner)
         
-        currency_format = workbook.add_format({'num_format': '$#,##0'})
-        percentage_format = workbook.add_format({'num_format': '0.0%'})
-        number_format = workbook.add_format({'num_format': '#,##0'})
+        # State - highlight if empty
+        state = str(data.get('custom.All_State', ''))
+        if state == '' or state == 'nan':
+            worksheet.write(row, 3, '', text_highlight_format)
+        else:
+            worksheet.write(row, 3, state)
         
-        # Write headers with formatting
-        for col_num, value in enumerate(df_export.columns.values):
-            worksheet.write(0, col_num, value, header_format)
+        # County - highlight if empty
+        county = str(data.get('custom.All_County', ''))
+        if county == '' or county == 'nan':
+            worksheet.write(row, 4, '', text_highlight_format)
+        else:
+            worksheet.write(row, 4, county)
         
-        # Apply number formatting to appropriate columns
-        for idx, col in enumerate(df_export.columns):
-            if col in ['custom.Asset_Cost_Basis', 'custom.Asset_Gross_Sales_Price', 
-                      'custom.Asset_Closing_Costs', 'Realized_Gross_Profit']:
-                worksheet.set_column(idx, idx, 15, currency_format)
-            elif col in ['Realized_Markup', 'Realized_Margin']:
-                # Convert percentage values (already in 0-100 format) to decimal for Excel percentage format
-                for row_num in range(1, len(df_export) + 1):
-                    cell_value = df_export.iloc[row_num - 1][col]
-                    if pd.notna(cell_value):
-                        worksheet.write(row_num, idx, safe_numeric_value(cell_value) / 100, percentage_format)
-            elif col in ['Days_Until_Sold', 'custom.All_Asset_Surveyed_Acres']:
-                worksheet.set_column(idx, idx, 12, number_format)
-            elif col == 'id':
-                worksheet.set_column(idx, idx, 25)  # Wider column for ID
-            else:
-                worksheet.set_column(idx, idx, 18)
+        # Handle Acres with safe numeric conversion
+        acres = safe_numeric_value(data.get('custom.All_Asset_Surveyed_Acres', 0))
+        if acres == 0:
+            worksheet.write(row, 5, 0, number_highlight_format)
+        else:
+            worksheet.write(row, 5, acres, number_format)
+        
+        # Handle Cost Basis with safe numeric conversion
+        cost_basis = safe_numeric_value(data.get('custom.Asset_Cost_Basis', 0))
+        if cost_basis == 0:
+            worksheet.write(row, 6, 0, currency_highlight_format)
+        else:
+            worksheet.write(row, 6, cost_basis, currency_format)
+        
+        # Handle Date Purchased with null check and highlighting
+        date_purchased = data.get('custom.Asset_Date_Purchased')
+        if pd.isna(date_purchased) or date_purchased == '':
+            worksheet.write(row, 7, '', date_highlight_format)
+        else:
+            worksheet.write(row, 7, date_purchased, date_format)
+            
+        # Opportunity Status - highlight if empty
+        opp_status = str(data.get('primary_opportunity_status_label', ''))
+        if opp_status == '' or opp_status == 'nan':
+            worksheet.write(row, 8, '', text_highlight_format)
+        else:
+            worksheet.write(row, 8, opp_status)
+        
+        # Handle Days Until Sold with safe conversion
+        days_sold = safe_int_value(data.get('Days_Until_Sold', 0))
+        if days_sold == 0:
+            worksheet.write(row, 9, 0, number_highlight_format)
+        else:
+            worksheet.write(row, 9, days_sold, number_format)
+        
+        # Handle Date Sold with null check and highlighting
+        date_sold = data.get('custom.Asset_Date_Sold')
+        if pd.isna(date_sold) or date_sold == '':
+            worksheet.write(row, 10, '', date_highlight_format)
+        else:
+            worksheet.write(row, 10, date_sold, date_format)
+        
+        # Handle Gross Sales Price with safe numeric conversion
+        gross_sales = safe_numeric_value(data.get('custom.Asset_Gross_Sales_Price', 0))
+        if gross_sales == 0:
+            worksheet.write(row, 11, 0, currency_highlight_format)
+        else:
+            worksheet.write(row, 11, gross_sales, currency_format)
+        
+        # Handle Closing Costs with safe numeric conversion
+        closing_costs = safe_numeric_value(data.get('custom.Asset_Closing_Costs', 0))
+        if closing_costs == 0:
+            worksheet.write(row, 12, 0, currency_highlight_format)
+        else:
+            worksheet.write(row, 12, closing_costs, currency_format)
+        
+        # Handle Realized Gross Profit with safe numeric conversion
+        gross_profit = safe_numeric_value(data.get('Realized_Gross_Profit', 0))
+        if gross_profit == 0:
+            worksheet.write(row, 13, 0, currency_highlight_format)
+        else:
+            worksheet.write(row, 13, gross_profit, currency_format)
+        
+        # Handle Realized Markup with safe numeric conversion
+        markup = safe_numeric_value(data.get('Realized_Markup', 0))
+        if markup == 0:
+            worksheet.write(row, 14, 0, percentage_highlight_format)
+        else:
+            worksheet.write(row, 14, markup / 100, percentage_format)
+        
+        # Handle Realized Margin with safe numeric conversion
+        margin = safe_numeric_value(data.get('Realized_Margin', 0))
+        if margin == 0:
+            worksheet.write(row, 15, 0, percentage_highlight_format)
+        else:
+            worksheet.write(row, 15, margin / 100, percentage_format)
     
+    # Auto-adjust column widths
+    for col in range(len(headers)):
+        if col == 0:  # ID column
+            worksheet.set_column(col, col, 12)
+        elif col == 1:  # Property name
+            worksheet.set_column(col, col, 25)
+        else:
+            worksheet.set_column(col, col, 15)
+    
+    workbook.close()
     output.seek(0)
+    
     return output
 
 def create_error_report_excel(error_df, total_records, processed_records, filename):
-    """Create Excel file for error report"""
+    """Create Excel error report for records that didn't import"""
     output = BytesIO()
     
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        # Write error details
-        error_df.to_excel(writer, index=False, sheet_name='Errors', startrow=4)
-        
-        # Get workbook and worksheet
-        workbook = writer.book
-        worksheet = writer.sheets['Errors']
-        
-        # Define formats
-        title_format = workbook.add_format({
-            'bold': True,
-            'font_size': 14,
-            'bg_color': '#C00000',
-            'font_color': 'white',
-            'align': 'center'
-        })
-        
-        stats_label_format = workbook.add_format({
-            'bold': True,
-            'bg_color': '#FFC7CE'
-        })
-        
-        stats_value_format = workbook.add_format({
-            'bg_color': '#FFF0F0'
-        })
-        
-        header_format = workbook.add_format({
-            'bold': True,
-            'bg_color': '#C00000',
-            'font_color': 'white',
-            'border': 1
-        })
-        
-        # Write title and statistics
-        worksheet.merge_range('A1:H1', 'Import Error Report', title_format)
-        
-        worksheet.write('A2', 'Total Records:', stats_label_format)
-        worksheet.write('B2', total_records, stats_value_format)
-        
-        worksheet.write('A3', 'Successfully Processed:', stats_label_format)
-        worksheet.write('B3', processed_records, stats_value_format)
-        
-        worksheet.write('A4', 'Records with Errors:', stats_label_format)
-        worksheet.write('B4', len(error_df), stats_value_format)
-        
-        # Format error table headers
-        for col_num, value in enumerate(error_df.columns.values):
-            worksheet.write(4, col_num, value, header_format)
-        
-        # Set column widths
-        worksheet.set_column('A:A', 25)  # ID
-        worksheet.set_column('B:B', 30)  # Property Name
-        worksheet.set_column('C:C', 20)  # Owner
-        worksheet.set_column('D:D', 20)  # Opportunity Status
-        worksheet.set_column('E:E', 25)  # Error Type
-        worksheet.set_column('F:F', 50)  # Error Detail
-        worksheet.set_column('G:G', 15)  # Date Sold
-        worksheet.set_column('H:H', 12)  # Row Number
+    # Create a workbook with NaN/INF handling enabled
+    workbook = xlsxwriter.Workbook(output, {
+        'in_memory': True,
+        'nan_inf_to_errors': True
+    })
     
+    # Summary worksheet
+    summary_worksheet = workbook.add_worksheet('Import Summary')
+    
+    # Error details worksheet
+    error_worksheet = workbook.add_worksheet('Error Details')
+    
+    # Define formats
+    header_format = workbook.add_format({
+        'bold': True,
+        'bg_color': '#D32F2F',
+        'font_color': 'white',
+        'border': 1
+    })
+    
+    summary_header_format = workbook.add_format({
+        'bold': True,
+        'bg_color': '#1976D2',
+        'font_color': 'white',
+        'border': 1
+    })
+    
+    error_format = workbook.add_format({
+        'bg_color': '#FFEBEE',
+        'border': 1
+    })
+    
+    success_format = workbook.add_format({
+        'bg_color': '#E8F5E8',
+        'border': 1
+    })
+    
+    # Summary worksheet content
+    summary_worksheet.write(0, 0, 'Import Summary Report', summary_header_format)
+    summary_worksheet.write(2, 0, 'Metric', summary_header_format)
+    summary_worksheet.write(2, 1, 'Value', summary_header_format)
+    
+    summary_worksheet.write(3, 0, 'Total Records in CSV', success_format)
+    summary_worksheet.write(3, 1, total_records, success_format)
+    
+    summary_worksheet.write(4, 0, 'Successfully Processed', success_format)
+    summary_worksheet.write(4, 1, processed_records, success_format)
+    
+    summary_worksheet.write(5, 0, 'Records with Errors', error_format)
+    summary_worksheet.write(5, 1, len(error_df), error_format)
+    
+    success_rate = (processed_records / total_records * 100) if total_records > 0 else 0
+    summary_worksheet.write(6, 0, 'Success Rate', summary_header_format)
+    summary_worksheet.write(6, 1, f"{success_rate:.1f}%", summary_header_format)
+    
+    # Error breakdown by type
+    if len(error_df) > 0:
+        summary_worksheet.write(8, 0, 'Error Breakdown by Type', summary_header_format)
+        summary_worksheet.write(9, 0, 'Error Type', summary_header_format)
+        summary_worksheet.write(9, 1, 'Count', summary_header_format)
+        
+        error_counts = error_df['Error Type'].value_counts()
+        for idx, (error_type, count) in enumerate(error_counts.items()):
+            summary_worksheet.write(10 + idx, 0, error_type, error_format)
+            summary_worksheet.write(10 + idx, 1, count, error_format)
+    
+    # Set column widths for summary
+    summary_worksheet.set_column(0, 0, 25)
+    summary_worksheet.set_column(1, 1, 15)
+    
+    # Error details worksheet
+    if len(error_df) > 0:
+        headers = ['Row Number', 'ID', 'Property Name', 'Owner', 'Opportunity Status', 'Error Type', 'Error Detail', 'Date Sold']
+        
+        # Write headers
+        for col, header in enumerate(headers):
+            error_worksheet.write(0, col, header, header_format)
+        
+        # Write error data with safe handling
+        for row, (_, data) in enumerate(error_df.iterrows(), 1):
+            error_worksheet.write(row, 0, safe_int_value(data.get('Row Number', 0)), error_format)
+            error_worksheet.write(row, 1, str(data.get('ID', '')), error_format)
+            error_worksheet.write(row, 2, str(data.get('Property Name', '')), error_format)
+            error_worksheet.write(row, 3, str(data.get('Owner', '')), error_format)
+            error_worksheet.write(row, 4, str(data.get('Opportunity Status', '')), error_format)
+            error_worksheet.write(row, 5, str(data.get('Error Type', '')), error_format)
+            error_worksheet.write(row, 6, str(data.get('Error Detail', '')), error_format)
+            error_worksheet.write(row, 7, str(data.get('Date Sold', '')), error_format)
+        
+        # Set column widths for error details
+        error_worksheet.set_column(0, 0, 10)  # Row Number
+        error_worksheet.set_column(1, 1, 12)  # ID
+        error_worksheet.set_column(2, 2, 25)  # Property Name
+        error_worksheet.set_column(3, 3, 20)  # Owner
+        error_worksheet.set_column(4, 4, 15)  # Opportunity Status
+        error_worksheet.set_column(5, 5, 20)  # Error Type
+        error_worksheet.set_column(6, 6, 40)  # Error Detail
+        error_worksheet.set_column(7, 7, 15)  # Date Sold
+    else:
+        error_worksheet.write(0, 0, 'No errors found - all records processed successfully!', success_format)
+    
+    workbook.close()
     output.seek(0)
+    
     return output
 
-def create_pdf_download(quarter_data_dict, filename):
-    """Create PDF file for download with quarters in chronological order (landscape legal size)"""
+def create_pdf_download(df_dict, filename):
+    """Create PDF file organized by quarter"""
     if not REPORTLAB_AVAILABLE:
+        st.error("PDF generation requires reportlab. Please install it: pip install reportlab")
         return None
+
+    buffer = BytesIO()
     
-    output = BytesIO()
-    
-    # Use landscape legal paper size
-    doc = SimpleDocTemplate(
-        output,
-        pagesize=landscape(legal),
-        topMargin=0.5*inch,
-        bottomMargin=0.5*inch,
-        leftMargin=0.5*inch,
-        rightMargin=0.5*inch
-    )
+    # Create the PDF document with landscape legal page size
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(legal),
+                          topMargin=0.5*inch, bottomMargin=0.5*inch,
+                          leftMargin=0.5*inch, rightMargin=0.5*inch)
     
     story = []
+    
+    # Get styles
     styles = getSampleStyleSheet()
     
     # Custom styles
@@ -470,405 +590,539 @@ def create_pdf_download(quarter_data_dict, filename):
         parent=styles['Heading1'],
         fontSize=16,
         spaceAfter=12,
-        alignment=1  # Center
+        alignment=1,  # Center alignment
+        textColor=colors.darkblue
     )
     
     quarter_style = ParagraphStyle(
-        'QuarterHeading',
+        'QuarterTitle',
         parent=styles['Heading2'],
         fontSize=14,
         spaceAfter=8,
-        spaceBefore=12
+        spaceBefore=12,
+        textColor=colors.darkblue
     )
     
-    # Main title
-    story.append(Paragraph("Sold Property Report", title_style))
-    story.append(Paragraph(f"Generated: {datetime.now().strftime('%m/%d/%Y')}", styles['Normal']))
-    story.append(Spacer(1, 0.3*inch))
+    summary_style = ParagraphStyle(
+        'SummaryStyle',
+        parent=styles['Normal'],
+        fontSize=10,
+        spaceAfter=6
+    )
     
-    # Get quarters in chronological order
-    sorted_quarters = sort_quarters_chronologically(list(quarter_data_dict.keys()))
+    disclaimer_style = ParagraphStyle(
+        'DisclaimerStyle',
+        parent=styles['Normal'],
+        fontSize=8,
+        textColor=colors.grey,
+        alignment=1,  # Center alignment
+        spaceAfter=12
+    )
     
-    # Process each quarter
-    for quarter in sorted_quarters:
-        df = quarter_data_dict[quarter]
+    # Cell text style for wrapping
+    cell_style = ParagraphStyle(
+        'CellStyle',
+        parent=styles['Normal'],
+        fontSize=8,
+        leading=9
+    )
+    
+    # Title
+    story.append(Paragraph("Remarkable Land LLC - Sold Properties Report", title_style))
+    story.append(Paragraph(f"Generated: {datetime.now().strftime('%B %d, %Y at %I:%M %p')}", summary_style))
+    story.append(Spacer(1, 12))
+    
+    # Process each quarter (in chronological order)
+    for quarter in sort_quarters_chronologically(df_dict.keys()):
+        quarter_data = df_dict[quarter]
         
-        if len(df) == 0:
+        if len(quarter_data) == 0:
             continue
-        
-        # Quarter header
+            
+        # Quarter title
         story.append(Paragraph(f"{quarter}", quarter_style))
         
-        # Prepare table data with display names
-        table_data = [[
-            'Property Name', 'Owner', 'State', 'County', 'Acres',
-            'Cost Basis', 'Date Purchased', 'Date Sold',
-            'Gross Sales', 'Closing Costs', 'Gross Profit',
-            'Markup %', 'Margin %', 'Days to Sell'
-        ]]
+        # Prepare table data with wrapped headers (using display names for PDF)
+        table_headers = ['Property\nName', 'Owner', 'State', 'County', 'Acres', 'Cost\nBasis',
+                        'Date\nPurchased', 'Days\nUntil Sold', 'Date\nSold', 'Gross Sales\nPrice',
+                        'Closing\nCosts', 'Realized Gross\nProfit', 'Realized\nMarkup', 'Realized\nMargin']
         
-        # Sort by Date Sold (most recent first within quarter)
-        df_sorted = df.sort_values('Date Sold', ascending=False)
+        table_data = [table_headers]
         
-        for _, row in df_sorted.iterrows():
-            table_data.append([
-                str(row.get('Property Name', ''))[:30],  # Truncate long names
-                str(row.get('Owner', ''))[:20],
+        for _, row in quarter_data.iterrows():
+            # Create wrapped property name
+            prop_name = str(row.get('Property Name', ''))
+            if len(prop_name) > 25:
+                prop_name_para = Paragraph(prop_name, cell_style)
+            else:
+                prop_name_para = prop_name
+            
+            # Safe formatting for all values (using display column names)
+            formatted_row = [
+                prop_name_para,  # Property name with wrapping
+                str(row.get('Owner', ''))[:18],  # Allow longer owner names
                 str(row.get('State', '')),
-                str(row.get('County', ''))[:15],
+                str(row.get('County', ''))[:15],  # Allow longer county names
                 f"{safe_numeric_value(row.get('Acres', 0)):.1f}",
                 f"${safe_numeric_value(row.get('Cost Basis', 0)):,.0f}",
-                row.get('Date Sold', pd.NaT).strftime('%m/%d/%Y') if pd.notna(row.get('Date Purchased')) else '',
-                row.get('Date Sold', pd.NaT).strftime('%m/%d/%Y') if pd.notna(row.get('Date Sold')) else '',
+                row.get('Date Purchased').strftime('%m/%d/%Y') if pd.notna(row.get('Date Purchased')) else '',
+                f"{safe_int_value(row.get('Days Until Sold', 0))}",
+                row.get('Date Sold').strftime('%m/%d/%Y') if pd.notna(row.get('Date Sold')) else '',
                 f"${safe_numeric_value(row.get('Gross Sales Price', 0)):,.0f}",
                 f"${safe_numeric_value(row.get('Closing Costs', 0)):,.0f}",
                 f"${safe_numeric_value(row.get('Realized Gross Profit', 0)):,.0f}",
-                f"{safe_numeric_value(row.get('Realized Markup', 0)):.1f}%",
-                f"{safe_numeric_value(row.get('Realized Margin', 0)):.1f}%",
-                f"{safe_int_value(row.get('Days Until Sold', 0))}"
-            ])
+                f"{safe_numeric_value(row.get('Realized Markup', 0)):.0f}%",
+                f"{safe_numeric_value(row.get('Realized Margin', 0)):.0f}%"
+            ]
+            table_data.append(formatted_row)
         
-        # Create table with adjusted column widths for legal landscape
-        col_widths = [1.5*inch, 1.2*inch, 0.4*inch, 0.9*inch, 0.5*inch,
-                     0.8*inch, 0.75*inch, 0.75*inch, 0.8*inch, 0.75*inch,
-                     0.8*inch, 0.6*inch, 0.6*inch, 0.6*inch]
+        # Create table with wider columns for landscape legal (14" x 8.5")
+        # Total usable width: approximately 13" (14" - 1" margins)
+        col_widths = [2.0*inch, 1.2*inch, 0.4*inch, 0.9*inch, 0.5*inch, 0.9*inch, 
+                     0.9*inch, 0.6*inch, 0.9*inch, 1.1*inch, 0.9*inch, 1.1*inch, 0.6*inch, 0.6*inch]
         
         table = Table(table_data, colWidths=col_widths, repeatRows=1)
         
-        # Table styling
+        # Table style with better formatting for landscape legal
         table.setStyle(TableStyle([
-            # Header row
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#366092')),
+            # Header formatting
+            ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+            ('FONTSIZE', (0, 0), (-1, 0), 9),  # Larger header font
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('TOPPADDING', (0, 0), (-1, 0), 8),
             
-            # Data rows
+            # Data formatting
             ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 1), (-1, -1), 7),
-            ('ALIGN', (2, 1), (2, -1), 'CENTER'),  # State
-            ('ALIGN', (4, 1), (-1, -1), 'RIGHT'),  # Numeric columns
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F0F0F0')])
+            ('FONTSIZE', (0, 1), (-1, -1), 8),  # Larger data font
+            ('ALIGN', (0, 1), (1, -1), 'LEFT'),  # Property Name and Owner left-aligned
+            ('ALIGN', (2, 1), (3, -1), 'CENTER'),  # State and County centered
+            ('ALIGN', (4, 1), (-1, -1), 'RIGHT'),  # All numbers right-aligned
+            ('GRID', (0, 0), (-1, -1), 0.8, colors.black),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 1), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 6),
+            
+            # Alternating row colors
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey]),
         ]))
         
         story.append(table)
+        story.append(Spacer(1, 12))
         
-        # Quarter summary
-        stats = create_summary_stats(df)
-        summary_text = f"""
-        <b>Quarter Summary:</b> {stats['total_properties']} properties | 
-        Gross Sales: {format_currency(stats['total_gross_sales'])} | 
-        Gross Profit: {format_currency(stats['total_gross_profit'])} | 
-        Avg Markup: {format_percentage(stats['average_markup'])} | 
-        Avg Margin: {format_percentage(stats['average_margin'])} | 
-        Avg Days: {safe_numeric_value(stats['average_days']):.0f}
-        """
+        # Quarter summary statistics (using display column names)
+        stats = create_summary_stats(quarter_data)
         
-        summary_para = Paragraph(summary_text, styles['Normal'])
-        story.append(Spacer(1, 0.1*inch))
-        story.append(summary_para)
-        story.append(PageBreak())
+        summary_data = [
+            ['Metric', 'Value', 'Metric', 'Value'],
+            ['Properties Sold', f"{stats['total_properties']}", 'Total Cost Basis', f"${stats['total_cost_basis']:,.0f}"],
+            ['Total Gross Sales', f"${stats['total_gross_sales']:,.0f}", 'Total Gross Profit', f"${stats['total_gross_profit']:,.0f}"],
+            ['Average Markup', f"{stats['average_markup']:.0f}%", 'Median Markup', f"{stats['median_markup']:.0f}%"],
+            ['Average Margin', f"{stats['average_margin']:.0f}%", 'Median Margin', f"{stats['median_margin']:.0f}%"],
+            ['Average Days to Sell', f"{stats['average_days']:.0f}", 'Median Days to Sell', f"{stats['median_days']:.0f}"]
+        ]
+        
+        summary_table = Table(summary_data, colWidths=[1.5*inch, 1.5*inch, 1.5*inch, 1.5*inch])
+        summary_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 9),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('ALIGN', (1, 1), (1, -1), 'RIGHT'),
+            ('ALIGN', (3, 1), (3, -1), 'RIGHT'),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        
+        story.append(summary_table)
+        
+        # Add page break between quarters (except for the last one)
+        sorted_quarters = sort_quarters_chronologically(df_dict.keys())
+        if quarter != sorted_quarters[-1]:
+            story.append(PageBreak())
+        else:
+            story.append(Spacer(1, 12))
     
-    # Remove last page break
-    if story and isinstance(story[-1], PageBreak):
-        story.pop()
+    # Overall summary if multiple quarters
+    if len(df_dict) > 1:
+        # Combine all data for overall summary
+        all_data = pd.concat(df_dict.values(), ignore_index=True)
+        overall_stats = create_summary_stats(all_data)
+        
+        story.append(Paragraph("Overall Summary", quarter_style))
+        
+        # Create a 4-column layout similar to web version
+        overall_summary_data = [
+            # Row 1: Total Properties (centered across all columns)
+            ['Total Properties', f"{overall_stats['total_properties']}", '', ''],
+            # Row 2: Financial totals headers
+            ['Total Gross Sales', 'Total Cost Basis', 'Total Closing Costs', 'Total Gross Profit'],
+            # Row 3: Financial totals values
+            [f"${overall_stats['total_gross_sales']:,.0f}", f"${overall_stats['total_cost_basis']:,.0f}", f"${overall_stats['total_closing_costs']:,.0f}", f"${overall_stats['total_gross_profit']:,.0f}"],
+            # Row 4: Markup and Margin headers
+            ['Average Markup', 'Median Markup', 'Average Margin', 'Median Margin'],
+            # Row 5: Markup and Margin values
+            [f"{overall_stats['average_markup']:.0f}%", f"{overall_stats['median_markup']:.0f}%", f"{overall_stats['average_margin']:.0f}%", f"{overall_stats['median_margin']:.0f}%"],
+            # Row 6: Days to sell headers
+            ['Average Days to Sell', 'Median Days to Sell', 'Max Days to Sell', 'Min Days to Sell'],
+            # Row 7: Days to sell values
+            [f"{overall_stats['average_days']:.0f}", f"{overall_stats['median_days']:.0f}", f"{overall_stats['max_days']:.0f}", f"{overall_stats['min_days']:.0f}"]
+        ]
+        
+        overall_summary_table = Table(overall_summary_data, colWidths=[1.75*inch, 1.75*inch, 1.75*inch, 1.75*inch])
+        overall_summary_table.setStyle(TableStyle([
+            # Header row for Total Properties
+            ('BACKGROUND', (0, 0), (-1, 0), colors.darkgreen),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
+            ('SPAN', (0, 0), (1, 0)),  # Span Total Properties across first two columns
+            
+            # Subheader rows (metric names)
+            ('BACKGROUND', (0, 1), (-1, 1), colors.lightgrey),
+            ('BACKGROUND', (0, 3), (-1, 3), colors.lightgrey),
+            ('BACKGROUND', (0, 5), (-1, 5), colors.lightgrey),
+            ('FONTNAME', (0, 1), (-1, 1), 'Helvetica-Bold'),
+            ('FONTNAME', (0, 3), (-1, 3), 'Helvetica-Bold'),
+            ('FONTNAME', (0, 5), (-1, 5), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 1), (-1, 1), 9),
+            ('FONTSIZE', (0, 3), (-1, 3), 9),
+            ('FONTSIZE', (0, 5), (-1, 5), 9),
+            ('ALIGN', (0, 1), (-1, 1), 'CENTER'),
+            ('ALIGN', (0, 3), (-1, 3), 'CENTER'),
+            ('ALIGN', (0, 5), (-1, 5), 'CENTER'),
+            
+            # Data rows
+            ('FONTNAME', (0, 2), (-1, 2), 'Helvetica'),
+            ('FONTNAME', (0, 4), (-1, 4), 'Helvetica'),
+            ('FONTNAME', (0, 6), (-1, 6), 'Helvetica'),
+            ('FONTSIZE', (0, 2), (-1, 2), 10),
+            ('FONTSIZE', (0, 4), (-1, 4), 10),
+            ('FONTSIZE', (0, 6), (-1, 6), 10),
+            ('ALIGN', (0, 2), (-1, 2), 'CENTER'),
+            ('ALIGN', (0, 4), (-1, 4), 'CENTER'),
+            ('ALIGN', (0, 6), (-1, 6), 'CENTER'),
+            
+            # Grid and spacing
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 6),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ]))
+        
+        story.append(overall_summary_table)
+        story.append(Spacer(1, 12))
     
-    # Add disclaimer at the end
-    story.append(Spacer(1, 0.2*inch))
-    disclaimer = Paragraph(
-        "<b>Disclaimer:</b> This data is sourced from our CRM and not our accounting software, "
-        "based on then-available data. Final accounting data and results may vary slightly.",
-        styles['Normal']
-    )
-    story.append(disclaimer)
+    # Add disclaimer
+    story.append(Paragraph("Disclaimer: This data is sourced from our CRM and not our accounting software, based on then-available data. Final accounting data and results may vary slightly.", disclaimer_style))
     
     # Build PDF
     try:
         doc.build(story)
-        output.seek(0)
-        return output
+        buffer.seek(0)
+        return buffer
     except Exception as e:
         st.error(f"Error generating PDF: {str(e)}")
         return None
 
+def format_currency(value):
+    """Format value as currency with safe handling"""
+    safe_value = safe_numeric_value(value, 0)
+    return f"${safe_value:,.0f}"
+
+def format_percentage(value):
+    """Format value as percentage with safe handling"""
+    safe_value = safe_numeric_value(value, 0)
+    return f"{safe_value:.0f}%"
+
+def create_summary_stats(df):
+    """Create summary statistics with safe numeric handling - works with display column names"""
+    if len(df) == 0:
+        return {}
+    
+    # Safe aggregations - handle both original and display column names
+    cost_basis_col = 'Cost Basis' if 'Cost Basis' in df.columns else 'custom.Asset_Cost_Basis'
+    gross_sales_col = 'Gross Sales Price' if 'Gross Sales Price' in df.columns else 'custom.Asset_Gross_Sales_Price'
+    closing_costs_col = 'Closing Costs' if 'Closing Costs' in df.columns else 'custom.Asset_Closing_Costs'
+    gross_profit_col = 'Realized Gross Profit' if 'Realized Gross Profit' in df.columns else 'Realized_Gross_Profit'
+    markup_col = 'Realized Markup' if 'Realized Markup' in df.columns else 'Realized_Markup'
+    margin_col = 'Realized Margin' if 'Realized Margin' in df.columns else 'Realized_Margin'
+    days_col = 'Days Until Sold' if 'Days Until Sold' in df.columns else 'Days_Until_Sold'
+    
+    cost_basis_sum = df[cost_basis_col].apply(lambda x: safe_numeric_value(x, 0)).sum()
+    gross_sales_sum = df[gross_sales_col].apply(lambda x: safe_numeric_value(x, 0)).sum()
+    closing_costs_sum = df[closing_costs_col].apply(lambda x: safe_numeric_value(x, 0)).sum()
+    gross_profit_sum = df[gross_profit_col].apply(lambda x: safe_numeric_value(x, 0)).sum()
+    
+    # Safe statistical calculations
+    markup_values = df[markup_col].apply(lambda x: safe_numeric_value(x, 0))
+    margin_values = df[margin_col].apply(lambda x: safe_numeric_value(x, 0))
+    days_values = df[days_col].apply(lambda x: safe_numeric_value(x, 0))
+    
+    return {
+        'total_properties': len(df),
+        'total_cost_basis': cost_basis_sum,
+        'total_gross_sales': gross_sales_sum,
+        'total_closing_costs': closing_costs_sum,
+        'total_gross_profit': gross_profit_sum,
+        'average_markup': markup_values.mean(),
+        'median_markup': markup_values.median(),
+        'max_markup': markup_values.max(),
+        'min_markup': markup_values.min(),
+        'average_margin': margin_values.mean(),
+        'median_margin': margin_values.median(),
+        'average_days': days_values.mean(),
+        'median_days': days_values.median(),
+        'max_days': days_values.max(),
+        'min_days': days_values.min()
+    }
+
 def main():
-    st.title("📊 Sold Property Report Generator")
-    st.markdown("Upload your Close.com CSV export to generate comprehensive sold property reports")
+    st.title("Sold Property Report")
+    st.markdown("Generate quarterly reports for sold properties from Close.com CRM data")
     
-    # Initialize session state for filters if not exists
-    if 'selected_quarters' not in st.session_state:
-        st.session_state.selected_quarters = []
-    if 'selected_owners' not in st.session_state:
-        st.session_state.selected_owners = []
-    if 'available_quarters' not in st.session_state:
-        st.session_state.available_quarters = []
-    if 'available_owners' not in st.session_state:
-        st.session_state.available_owners = []
+    # Instructions
+    with st.expander("Instructions", expanded=True):
+        st.markdown("""
+        **How to use this report:**
+        1. **Export from Close.com:** Go to your Close.com CRM and export properties with "Remarkable - Sold" status
+        2. **Export All Fields:** Make sure to select "All Fields" when exporting
+        3. **Upload CSV:** Upload the exported CSV file below
+        4. **Select Filters:** Choose which quarters and owners to include in your report
+        5. **Generate Report:** View the report online or download as Excel/PDF
+        
+        **Note:** The Excel download will use original Close.com field names and include the ID field for easier data correction.
+        """)
     
-    uploaded_file = st.file_uploader("Choose your Close.com CSV export", type=['csv'])
+    # File upload
+    uploaded_file = st.file_uploader(
+        "Upload your Close.com CSV export (Remarkable - Sold status, All Fields)",
+        type=['csv'],
+        help="Export properties with 'Remarkable - Sold' status from Close.com with all fields selected"
+    )
     
     if uploaded_file is not None:
         try:
+            # Load and process data
             df = pd.read_csv(uploaded_file)
+            df_processed, df_display, error_df, total_records = process_data(df)
             
-            # Process the data
-            df_processed, error_df, total_records = process_data(df)
+            if len(df_processed) == 0:
+                st.warning("No sold properties found in the uploaded data.")
+                if len(error_df) > 0:
+                    st.error(f"Found {len(error_df)} records with errors that prevented processing.")
+                return
             
-            # Display processing summary
-            st.subheader("📊 Processing Summary")
+            # Display import summary
             col1, col2, col3, col4 = st.columns(4)
-            
             with col1:
                 st.metric("Total Records", total_records)
             with col2:
-                st.metric("Successfully Processed", len(df_processed), 
-                         delta=f"{(len(df_processed)/total_records*100):.1f}%")
+                st.metric("Successfully Processed", len(df_processed))
             with col3:
-                st.metric("Records with Errors", len(error_df),
-                         delta=f"{(len(error_df)/total_records*100):.1f}%" if len(error_df) > 0 else "0%",
-                         delta_color="inverse")
+                st.metric("Records with Errors", len(error_df))
             with col4:
                 success_rate = (len(df_processed) / total_records * 100) if total_records > 0 else 0
                 st.metric("Success Rate", f"{success_rate:.1f}%")
             
-            if len(df_processed) == total_records:
+            # Show error summary if there are errors
+            if len(error_df) > 0:
+                st.warning(f"Warning: {len(error_df)} records could not be processed. Download the error report below for details.")
+                
+                # Show error breakdown
+                with st.expander("View Error Summary"):
+                    error_counts = error_df['Error Type'].value_counts()
+                    st.write("**Error Breakdown:**")
+                    for error_type, count in error_counts.items():
+                        st.write(f"• {error_type}: {count} records")
+            else:
                 st.success(f"All {total_records} records processed successfully!")
             
-            # Show error details if any
-            if len(error_df) > 0:
-                with st.expander(f"⚠️ View {len(error_df)} Records with Errors", expanded=False):
-                    st.dataframe(error_df, use_container_width=True)
+            # Filters
+            st.subheader("Report Filters")
             
-            st.divider()
-            
-            # Create display version with mapped column names
-            df_display = df_processed.copy()
-            
-            # Rename columns for display
-            rename_dict = {}
-            for old_name, new_name in FIELD_MAPPING.items():
-                if old_name in df_display.columns:
-                    rename_dict[old_name] = new_name
-            
-            # Also rename calculated fields
-            rename_dict.update({
-                'Days_Until_Sold': 'Days Until Sold',
-                'Realized_Gross_Profit': 'Realized Gross Profit',
-                'Realized_Markup': 'Realized Markup',
-                'Realized_Margin': 'Realized Margin',
-                'Quarter_Year': 'Quarter_Year'  # Keep this name for filtering
-            })
-            
-            df_display = df_display.rename(columns=rename_dict)
-            
-            # Keep original version for Excel export (with ID)
-            df_original = df_processed.copy()
-            
-            # Get unique quarters and owners - update session state available options
-            # Convert to string to avoid type comparison issues in sorting
-            unique_quarters = df_display['Quarter_Year'].dropna().astype(str).unique().tolist()
-            st.session_state.available_quarters = sort_quarters_chronologically(unique_quarters)
-            
-            # Filter out NaN and convert to string before sorting
-            unique_owners = df_display['Owner'].dropna().unique().tolist()
-            # Convert everything to string and clean up
-            unique_owners = [str(o) for o in unique_owners if pd.notna(o)]
-            # Remove any 'nan' strings and empty strings
-            unique_owners = [o for o in unique_owners if o.lower() != 'nan' and o.strip() != '']
-            
-            # Sort with try-except to handle any remaining type issues
-            try:
-                st.session_state.available_owners = sorted(unique_owners)
-            except TypeError:
-                # If sorting fails, just use the unsorted list
-                st.session_state.available_owners = unique_owners
-            
-            # Report Filters Section
-            st.subheader("📋 Report Filters")
-            
-            # Create two columns for the filters
             col1, col2 = st.columns(2)
             
             with col1:
                 st.write("**Select Calendar Quarters:**")
+                available_quarters = sort_quarters_chronologically([q for q in df_display['Quarter_Year'].unique() if pd.notna(q)])
                 
-                # Buttons for Select All / Select None Quarters
-                btn_col1, btn_col2 = st.columns(2)
-                with btn_col1:
-                    if st.button("Select All Quarters", key="select_all_quarters"):
-                        st.session_state.selected_quarters = st.session_state.available_quarters.copy()
-                        st.rerun()
-                with btn_col2:
-                    if st.button("Select None Quarters", key="select_none_quarters"):
-                        st.session_state.selected_quarters = []
-                        st.rerun()
+                # Quarter selection controls
+                quarter_col1, quarter_col2 = st.columns(2)
+                with quarter_col1:
+                    select_all_quarters = st.button("Select All Quarters", key="btn_select_all_quarters")
+                with quarter_col2:
+                    select_none_quarters = st.button("Select None Quarters", key="btn_select_none_quarters")
                 
-                # Quarter checkboxes
-                for quarter in st.session_state.available_quarters:
-                    is_checked = quarter in st.session_state.selected_quarters
-                    if st.checkbox(quarter, value=is_checked, key=f"quarter_{quarter}"):
-                        if quarter not in st.session_state.selected_quarters:
-                            st.session_state.selected_quarters.append(quarter)
+                # Initialize session state for quarter selections if not exists
+                if 'quarter_selections' not in st.session_state:
+                    st.session_state.quarter_selections = {q: False for q in available_quarters}
+                
+                # Handle button clicks
+                if select_all_quarters:
+                    for q in available_quarters:
+                        st.session_state.quarter_selections[q] = True
+                        
+                if select_none_quarters:
+                    for q in available_quarters:
+                        st.session_state.quarter_selections[q] = False
+                
+                # Display checkboxes and collect selected quarters
+                selected_quarters = []
+                for quarter in available_quarters:
+                    # Use session state value if it exists, otherwise default to False
+                    current_value = st.session_state.quarter_selections.get(quarter, False)
+                    if st.checkbox(f"{quarter}", value=current_value, key=f"cb_quarter_{quarter}"):
+                        selected_quarters.append(quarter)
+                        st.session_state.quarter_selections[quarter] = True
                     else:
-                        if quarter in st.session_state.selected_quarters:
-                            st.session_state.selected_quarters.remove(quarter)
+                        st.session_state.quarter_selections[quarter] = False
             
             with col2:
                 st.write("**Select Owners:**")
+                available_owners = sorted([o for o in df_display['Owner'].unique() if pd.notna(o) and o != ''])
                 
-                # Buttons for Select All / Select None Owners
-                btn_col1, btn_col2 = st.columns(2)
-                with btn_col1:
-                    if st.button("Select All Owners", key="select_all_owners"):
-                        st.session_state.selected_owners = st.session_state.available_owners.copy()
-                        st.rerun()
-                with btn_col2:
-                    if st.button("Select None Owners", key="select_none_owners"):
-                        st.session_state.selected_owners = []
-                        st.rerun()
+                # Owner selection controls
+                owner_col1, owner_col2 = st.columns(2)
+                with owner_col1:
+                    select_all_owners = st.button("Select All Owners", key="btn_select_all_owners")
+                with owner_col2:
+                    select_none_owners = st.button("Select None Owners", key="btn_select_none_owners")
                 
-                # Owner checkboxes
-                for owner in st.session_state.available_owners:
-                    is_checked = owner in st.session_state.selected_owners
-                    if st.checkbox(owner, value=is_checked, key=f"owner_{owner}"):
-                        if owner not in st.session_state.selected_owners:
-                            st.session_state.selected_owners.append(owner)
+                # Initialize session state for owner selections if not exists
+                if 'owner_selections' not in st.session_state:
+                    st.session_state.owner_selections = {o: False for o in available_owners}
+                
+                # Handle button clicks
+                if select_all_owners:
+                    for o in available_owners:
+                        st.session_state.owner_selections[o] = True
+                        
+                if select_none_owners:
+                    for o in available_owners:
+                        st.session_state.owner_selections[o] = False
+                
+                # Display checkboxes and collect selected owners
+                selected_owners = []
+                for owner in available_owners:
+                    # Use session state value if it exists, otherwise default to False
+                    current_value = st.session_state.owner_selections.get(owner, False)
+                    if st.checkbox(f"{owner}", value=current_value, key=f"cb_owner_{owner}"):
+                        selected_owners.append(owner)
+                        st.session_state.owner_selections[owner] = True
                     else:
-                        if owner in st.session_state.selected_owners:
-                            st.session_state.selected_owners.remove(owner)
+                        st.session_state.owner_selections[owner] = False
             
-            st.divider()
-            
-            # Get selected filters from session state
-            selected_quarters = st.session_state.selected_quarters
-            selected_owners = st.session_state.selected_owners
-            
-            # Apply filters
-            if not selected_quarters:
-                st.warning("Please select at least one quarter to view data")
-                return
-            
-            if not selected_owners:
-                st.warning("Please select at least one owner to view data")
-                return
-            
-            # Filter both display and original dataframes
-            # Convert to string to avoid type comparison issues
+            # Filter data based on selections (for both display and original data)
             filtered_df_display = df_display[
-                (df_display['Quarter_Year'].astype(str).isin([str(q) for q in selected_quarters])) &
-                (df_display['Owner'].astype(str).isin([str(o) for o in selected_owners]))
+                (df_display['Quarter_Year'].isin(selected_quarters)) &
+                (df_display['Owner'].isin(selected_owners))
             ].copy()
             
-            filtered_df_original = df_original[
-                (df_original['Quarter_Year'].astype(str).isin([str(q) for q in selected_quarters])) &
-                (df_original['custom.Asset_Owner'].astype(str).isin([str(o) for o in selected_owners]))
+            # Also filter the original data for Excel export
+            filtered_df_original = df_processed[
+                (df_processed['Quarter_Year'].isin(selected_quarters)) &
+                (df_processed['custom.Asset_Owner'].isin(selected_owners))
             ].copy()
             
             if len(filtered_df_display) == 0:
-                st.warning("No properties match the selected filters")
+                st.warning("No properties match your selected filters.")
                 return
             
-            # Display data by quarter
-            st.subheader(f"📈 Property Details ({len(filtered_df_display)} properties)")
+            # Display results by quarter (in chronological order)
+            st.subheader("Sold Properties Report")
             
-            # Process each selected quarter in chronological order
+            # Sort selected quarters chronologically
             sorted_selected_quarters = sort_quarters_chronologically(selected_quarters)
+            
             for quarter in sorted_selected_quarters:
-                # Use string comparison to avoid type mismatch
-                quarter_data = filtered_df_display[filtered_df_display['Quarter_Year'].astype(str) == str(quarter)].copy()
-                
+                quarter_data = filtered_df_display[filtered_df_display['Quarter_Year'] == quarter].copy()
                 if len(quarter_data) == 0:
                     continue
                 
-                with st.expander(f"**{quarter}** ({len(quarter_data)} properties)", expanded=True):
-                    # Sort by Date Sold (most recent first)
-                    quarter_data = quarter_data.sort_values('Date Sold', ascending=False)
-                    
-                    # Create display dataframe with selected columns
-                    display_columns = [
-                        'Property Name', 'Owner', 'State', 'County', 'Acres',
-                        'Cost Basis', 'Date Purchased', 'Date Sold',
-                        'Gross Sales Price', 'Closing Costs', 'Realized Gross Profit',
-                        'Realized Markup', 'Realized Margin', 'Days Until Sold'
-                    ]
-                    
-                    display_df = quarter_data[[col for col in display_columns if col in quarter_data.columns]].copy()
-                    
-                    # Format currency columns
-                    currency_columns = ['Cost Basis', 'Gross Sales Price', 'Closing Costs', 'Realized Gross Profit']
-                    for col in currency_columns:
-                        if col in display_df.columns:
-                            display_df[col] = display_df[col].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "")
-                    
-                    # Format percentage columns
-                    percentage_columns = ['Realized Markup', 'Realized Margin']
-                    for col in percentage_columns:
-                        if col in display_df.columns:
-                            display_df[col] = display_df[col].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "")
-                    
-                    # Format numeric columns
-                    if 'Acres' in display_df.columns:
-                        display_df['Acres'] = display_df['Acres'].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "")
-                    if 'Days Until Sold' in display_df.columns:
-                        display_df['Days Until Sold'] = display_df['Days Until Sold'].apply(lambda x: f"{x:.0f}" if pd.notna(x) else "")
-                    
-                    # Format date columns
-                    if 'Date Purchased' in display_df.columns:
-                        display_df['Date Purchased'] = display_df['Date Purchased'].apply(
-                            lambda x: x.strftime('%m/%d/%Y') if pd.notna(x) else ''
-                        )
-                    if 'Date Sold' in display_df.columns:
-                        display_df['Date Sold'] = display_df['Date Sold'].apply(
-                            lambda x: x.strftime('%m/%d/%Y') if pd.notna(x) else ''
-                        )
-                    
-                    st.dataframe(display_df, use_container_width=True)
-                    
-                    # Summary statistics for quarter
-                    stats = create_summary_stats(quarter_data)
-                    
-                    # First row: Total Properties (centered)
-                    col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
-                    with col2:
-                        st.metric("Total Properties", stats['total_properties'])
-                    
-                    # Second row: Financial totals
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("Total Gross Sales", format_currency(stats['total_gross_sales']))
-                    with col2:
-                        st.metric("Total Cost Basis", format_currency(stats['total_cost_basis']))
-                    with col3:
-                        st.metric("Total Closing Costs", format_currency(stats['total_closing_costs']))
-                    with col4:
-                        st.metric("Total Gross Profit", format_currency(stats['total_gross_profit']))
-                    
-                    # Third row: Markup and Margin percentages
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("Average Markup", format_percentage(stats['average_markup']))
-                    with col2:
-                        st.metric("Median Markup", format_percentage(stats['median_markup']))
-                    with col3:
-                        st.metric("Average Margin", format_percentage(stats['average_margin']))
-                    with col4:
-                        st.metric("Median Margin", format_percentage(stats['median_margin']))
-                    
-                    # Fourth row: Days to sell metrics
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("Average Days to Sell", f"{safe_numeric_value(stats['average_days']):.0f}")
-                    with col2:
-                        st.metric("Median Days to Sell", f"{safe_numeric_value(stats['median_days']):.0f}")
-                    with col3:
-                        st.metric("Max Days to Sell", f"{safe_numeric_value(stats['max_days']):.0f}")
-                    with col4:
-                        st.metric("Min Days to Sell", f"{safe_numeric_value(stats['min_days']):.0f}")
-                    
-                    st.divider()
+                st.markdown(f"### {quarter}")
+                
+                # Prepare display data
+                display_columns = [
+                    'Property Name', 'Owner', 'State', 'County', 'Acres', 'Cost Basis',
+                    'Date Purchased', 'Opportunity Status', 'Days Until Sold',
+                    'Date Sold', 'Gross Sales Price', 'Closing Costs', 'Realized Gross Profit', 
+                    'Realized Markup', 'Realized Margin'
+                ]
+                
+                display_df = quarter_data[display_columns].copy()
+                
+                # Format for display with safe handling
+                if 'Cost Basis' in display_df.columns:
+                    display_df['Cost Basis'] = display_df['Cost Basis'].apply(format_currency)
+                if 'Gross Sales Price' in display_df.columns:
+                    display_df['Gross Sales Price'] = display_df['Gross Sales Price'].apply(format_currency)
+                if 'Closing Costs' in display_df.columns:
+                    display_df['Closing Costs'] = display_df['Closing Costs'].apply(format_currency)
+                if 'Realized Gross Profit' in display_df.columns:
+                    display_df['Realized Gross Profit'] = display_df['Realized Gross Profit'].apply(format_currency)
+                if 'Realized Markup' in display_df.columns:
+                    display_df['Realized Markup'] = display_df['Realized Markup'].apply(format_percentage)
+                if 'Realized Margin' in display_df.columns:
+                    display_df['Realized Margin'] = display_df['Realized Margin'].apply(format_percentage)
+                if 'Date Purchased' in display_df.columns:
+                    display_df['Date Purchased'] = display_df['Date Purchased'].apply(
+                        lambda x: x.strftime('%m/%d/%Y') if pd.notna(x) else ''
+                    )
+                if 'Date Sold' in display_df.columns:
+                    display_df['Date Sold'] = display_df['Date Sold'].apply(
+                        lambda x: x.strftime('%m/%d/%Y') if pd.notna(x) else ''
+                    )
+                
+                st.dataframe(display_df, use_container_width=True)
+                
+                # Summary statistics for quarter
+                stats = create_summary_stats(quarter_data)
+                
+                # First row: Total Properties (centered)
+                col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+                with col2:
+                    st.metric("Total Properties", stats['total_properties'])
+                
+                # Second row: Financial totals
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Total Gross Sales", format_currency(stats['total_gross_sales']))
+                with col2:
+                    st.metric("Total Cost Basis", format_currency(stats['total_cost_basis']))
+                with col3:
+                    st.metric("Total Closing Costs", format_currency(stats['total_closing_costs']))
+                with col4:
+                    st.metric("Total Gross Profit", format_currency(stats['total_gross_profit']))
+                
+                # Third row: Markup and Margin percentages
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Average Markup", format_percentage(stats['average_markup']))
+                with col2:
+                    st.metric("Median Markup", format_percentage(stats['median_markup']))
+                with col3:
+                    st.metric("Average Margin", format_percentage(stats['average_margin']))
+                with col4:
+                    st.metric("Median Margin", format_percentage(stats['median_margin']))
+                
+                # Fourth row: Days to sell metrics
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Average Days to Sell", f"{safe_numeric_value(stats['average_days']):.0f}")
+                with col2:
+                    st.metric("Median Days to Sell", f"{safe_numeric_value(stats['median_days']):.0f}")
+                with col3:
+                    st.metric("Max Days to Sell", f"{safe_numeric_value(stats['max_days']):.0f}")
+                with col4:
+                    st.metric("Min Days to Sell", f"{safe_numeric_value(stats['min_days']):.0f}")
+                
+                st.divider()
             
             # Overall summary
             if len(selected_quarters) > 1:
@@ -920,8 +1174,7 @@ def main():
             quarter_data_dict = {}
             sorted_selected_quarters = sort_quarters_chronologically(selected_quarters)
             for quarter in sorted_selected_quarters:
-                # Use string comparison to avoid type mismatch
-                quarter_data_dict[quarter] = filtered_df_display[filtered_df_display['Quarter_Year'].astype(str) == str(quarter)].copy()
+                quarter_data_dict[quarter] = filtered_df_display[filtered_df_display['Quarter_Year'] == quarter].copy()
             
             # Generate filenames
             current_date = datetime.now().strftime("%Y%m%d")
