@@ -946,11 +946,11 @@ def main():
             # Filters
             st.subheader("Report Filters")
             
-            # Initialize session state at the very beginning
-            if 'quarter_selections' not in st.session_state:
-                st.session_state.quarter_selections = {}
-            if 'owner_selections' not in st.session_state:
-                st.session_state.owner_selections = {}
+            # Initialize session state
+            if 'selected_quarters' not in st.session_state:
+                st.session_state.selected_quarters = []
+            if 'selected_owners' not in st.session_state:
+                st.session_state.selected_owners = []
             
             col1, col2 = st.columns(2)
             
@@ -958,77 +958,47 @@ def main():
                 st.write("**Select Calendar Quarters:**")
                 available_quarters = sort_quarters_chronologically([q for q in df_display['Quarter_Year'].unique() if pd.notna(q)])
                 
-                # Add any new quarters to session state
-                for q in available_quarters:
-                    if q not in st.session_state.quarter_selections:
-                        st.session_state.quarter_selections[q] = False
-                
-                # Quarter selection controls with on_click callbacks
+                # Quarter selection controls
                 quarter_col1, quarter_col2 = st.columns(2)
                 with quarter_col1:
-                    st.button(
-                        "Select All Quarters", 
-                        key="btn_select_all_quarters",
-                        on_click=lambda: st.session_state.update({
-                            'quarter_selections': {q: True for q in available_quarters}
-                        })
-                    )
+                    if st.button("Select All Quarters", key="btn_select_all_quarters"):
+                        st.session_state.selected_quarters = available_quarters.copy()
                 with quarter_col2:
-                    st.button(
-                        "Select None Quarters", 
-                        key="btn_select_none_quarters",
-                        on_click=lambda: st.session_state.update({
-                            'quarter_selections': {q: False for q in available_quarters}
-                        })
-                    )
+                    if st.button("Select None Quarters", key="btn_select_none_quarters"):
+                        st.session_state.selected_quarters = []
                 
-                # Display checkboxes and collect selected quarters
-                selected_quarters = []
-                for quarter in available_quarters:
-                    if st.checkbox(
-                        f"{quarter}", 
-                        value=st.session_state.quarter_selections.get(quarter, False),
-                        key=f"cb_quarter_{quarter}"
-                    ):
-                        selected_quarters.append(quarter)
+                # Multiselect for quarters
+                selected_quarters = st.multiselect(
+                    "Choose quarters:",
+                    options=available_quarters,
+                    default=st.session_state.selected_quarters,
+                    key="multiselect_quarters"
+                )
+                # Update session state with current selection
+                st.session_state.selected_quarters = selected_quarters
             
             with col2:
                 st.write("**Select Owners:**")
                 available_owners = sorted([o for o in df_display['Owner'].unique() if pd.notna(o) and o != ''])
                 
-                # Add any new owners to session state
-                for o in available_owners:
-                    if o not in st.session_state.owner_selections:
-                        st.session_state.owner_selections[o] = False
-                
-                # Owner selection controls with on_click callbacks
+                # Owner selection controls
                 owner_col1, owner_col2 = st.columns(2)
                 with owner_col1:
-                    st.button(
-                        "Select All Owners", 
-                        key="btn_select_all_owners",
-                        on_click=lambda: st.session_state.update({
-                            'owner_selections': {o: True for o in available_owners}
-                        })
-                    )
+                    if st.button("Select All Owners", key="btn_select_all_owners"):
+                        st.session_state.selected_owners = available_owners.copy()
                 with owner_col2:
-                    st.button(
-                        "Select None Owners", 
-                        key="btn_select_none_owners",
-                        on_click=lambda: st.session_state.update({
-                            'owner_selections': {o: False for o in available_owners}
-                        })
-                    )
+                    if st.button("Select None Owners", key="btn_select_none_owners"):
+                        st.session_state.selected_owners = []
                 
-                # Display checkboxes and collect selected owners
-                selected_owners = []
-                for owner in available_owners:
-                    if st.checkbox(
-                        f"{owner}", 
-                        value=st.session_state.owner_selections.get(owner, False),
-                        key=f"cb_owner_{owner}"
-                    ):
-                        selected_owners.append(owner)
+                # Multiselect for owners
+                selected_owners = st.multiselect(
+                    "Choose owners:",
+                    options=available_owners,
+                    default=st.session_state.selected_owners,
+                    key="multiselect_owners"
+                )
+                # Update session state with current selection
+                st.session_state.selected_owners = selected_owners
             
             # Filter data based on selections (for both display and original data)
             filtered_df_display = df_display[
