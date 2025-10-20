@@ -967,10 +967,12 @@ def main():
                 if select_all_quarters:
                     for q in available_quarters:
                         st.session_state.quarter_selections[q] = True
-                        
+                    st.rerun()
+
                 if select_none_quarters:
                     for q in available_quarters:
                         st.session_state.quarter_selections[q] = False
+                    st.rerun()
                 
                 # Display checkboxes and collect selected quarters
                 selected_quarters = []
@@ -1002,10 +1004,12 @@ def main():
                 if select_all_owners:
                     for o in available_owners:
                         st.session_state.owner_selections[o] = True
-                        
+                    st.rerun()
+
                 if select_none_owners:
                     for o in available_owners:
                         st.session_state.owner_selections[o] = False
+                    st.rerun()
                 
                 # Display checkboxes and collect selected owners
                 selected_owners = []
