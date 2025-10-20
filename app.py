@@ -963,9 +963,11 @@ def main():
                 with quarter_col1:
                     if st.button("Select All Quarters", key="btn_select_all_quarters"):
                         st.session_state.selected_quarters = available_quarters.copy()
+                        st.rerun()
                 with quarter_col2:
                     if st.button("Select None Quarters", key="btn_select_none_quarters"):
                         st.session_state.selected_quarters = []
+                        st.rerun()
                 
                 # Multiselect for quarters
                 selected_quarters = st.multiselect(
@@ -986,9 +988,11 @@ def main():
                 with owner_col1:
                     if st.button("Select All Owners", key="btn_select_all_owners"):
                         st.session_state.selected_owners = available_owners.copy()
+                        st.rerun()
                 with owner_col2:
                     if st.button("Select None Owners", key="btn_select_none_owners"):
                         st.session_state.selected_owners = []
+                        st.rerun()
                 
                 # Multiselect for owners
                 selected_owners = st.multiselect(
