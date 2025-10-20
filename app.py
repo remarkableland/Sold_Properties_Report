@@ -239,20 +239,47 @@ def process_data(df):
 
 def create_summary_stats(df):
     """Create summary statistics for a dataframe"""
+    # Handle empty dataframe
+    if len(df) == 0:
+        return {
+            'total_properties': 0,
+            'total_gross_sales': 0,
+            'total_cost_basis': 0,
+            'total_closing_costs': 0,
+            'total_gross_profit': 0,
+            'average_markup': 0,
+            'median_markup': 0,
+            'average_margin': 0,
+            'median_margin': 0,
+            'average_days': 0,
+            'median_days': 0,
+            'max_days': 0,
+            'min_days': 0
+        }
+    
+    # Use original column names for calculations
+    col_gross_sales = 'custom.Asset_Gross_Sales_Price' if 'custom.Asset_Gross_Sales_Price' in df.columns else 'Gross Sales Price'
+    col_cost_basis = 'custom.Asset_Cost_Basis' if 'custom.Asset_Cost_Basis' in df.columns else 'Cost Basis'
+    col_closing_costs = 'custom.Asset_Closing_Costs' if 'custom.Asset_Closing_Costs' in df.columns else 'Closing Costs'
+    col_gross_profit = 'Realized_Gross_Profit' if 'Realized_Gross_Profit' in df.columns else 'Realized Gross Profit'
+    col_markup = 'Realized_Markup' if 'Realized_Markup' in df.columns else 'Realized Markup'
+    col_margin = 'Realized_Margin' if 'Realized_Margin' in df.columns else 'Realized Margin'
+    col_days = 'Days_Until_Sold' if 'Days_Until_Sold' in df.columns else 'Days Until Sold'
+    
     return {
         'total_properties': len(df),
-        'total_gross_sales': safe_numeric_value(df['custom.Asset_Gross_Sales_Price'].sum()),
-        'total_cost_basis': safe_numeric_value(df['custom.Asset_Cost_Basis'].sum()),
-        'total_closing_costs': safe_numeric_value(df['custom.Asset_Closing_Costs'].sum()),
-        'total_gross_profit': safe_numeric_value(df['Realized_Gross_Profit'].sum()),
-        'average_markup': safe_numeric_value(df['Realized_Markup'].mean()),
-        'median_markup': safe_numeric_value(df['Realized_Markup'].median()),
-        'average_margin': safe_numeric_value(df['Realized_Margin'].mean()),
-        'median_margin': safe_numeric_value(df['Realized_Margin'].median()),
-        'average_days': safe_numeric_value(df['Days_Until_Sold'].mean()),
-        'median_days': safe_numeric_value(df['Days_Until_Sold'].median()),
-        'max_days': safe_numeric_value(df['Days_Until_Sold'].max()),
-        'min_days': safe_numeric_value(df['Days_Until_Sold'].min())
+        'total_gross_sales': safe_numeric_value(df[col_gross_sales].sum()) if col_gross_sales in df.columns else 0,
+        'total_cost_basis': safe_numeric_value(df[col_cost_basis].sum()) if col_cost_basis in df.columns else 0,
+        'total_closing_costs': safe_numeric_value(df[col_closing_costs].sum()) if col_closing_costs in df.columns else 0,
+        'total_gross_profit': safe_numeric_value(df[col_gross_profit].sum()) if col_gross_profit in df.columns else 0,
+        'average_markup': safe_numeric_value(df[col_markup].mean()) if col_markup in df.columns else 0,
+        'median_markup': safe_numeric_value(df[col_markup].median()) if col_markup in df.columns else 0,
+        'average_margin': safe_numeric_value(df[col_margin].mean()) if col_margin in df.columns else 0,
+        'median_margin': safe_numeric_value(df[col_margin].median()) if col_margin in df.columns else 0,
+        'average_days': safe_numeric_value(df[col_days].mean()) if col_days in df.columns else 0,
+        'median_days': safe_numeric_value(df[col_days].median()) if col_days in df.columns else 0,
+        'max_days': safe_numeric_value(df[col_days].max()) if col_days in df.columns else 0,
+        'min_days': safe_numeric_value(df[col_days].min()) if col_days in df.columns else 0
     }
 
 def format_currency(value):
@@ -641,8 +668,23 @@ def main():
             df_original = df_processed.copy()
             
             # Get unique quarters and owners - update session state available options
-            st.session_state.available_quarters = sort_quarters_chronologically(df_display['Quarter_Year'].unique().tolist())
-            st.session_state.available_owners = sorted(df_display['Owner'].unique().tolist())
+            # Convert to string to avoid type comparison issues in sorting
+            unique_quarters = df_display['Quarter_Year'].dropna().astype(str).unique().tolist()
+            st.session_state.available_quarters = sort_quarters_chronologically(unique_quarters)
+            
+            # Filter out NaN and convert to string before sorting
+            unique_owners = df_display['Owner'].dropna().unique().tolist()
+            # Convert everything to string and clean up
+            unique_owners = [str(o) for o in unique_owners if pd.notna(o)]
+            # Remove any 'nan' strings and empty strings
+            unique_owners = [o for o in unique_owners if o.lower() != 'nan' and o.strip() != '']
+            
+            # Sort with try-except to handle any remaining type issues
+            try:
+                st.session_state.available_owners = sorted(unique_owners)
+            except TypeError:
+                # If sorting fails, just use the unsorted list
+                st.session_state.available_owners = unique_owners
             
             # Report Filters Section
             st.subheader("📋 Report Filters")
