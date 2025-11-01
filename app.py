@@ -77,12 +77,11 @@ def format_currency(v) -> str:
 def format_percentage(v) -> str:
     return f"{safe_numeric_value(v):.0f}%"
 
-# ---------- Simple annualized IRR (compounded annually via day-fraction) ----------
-def compute_row_simple_irr(purchase_dt, sale_dt, cost_basis, gross_sales, closing_costs) -> Optional[float]:
+# ---------- Linear (non-compounding) annualized IRR ----------
+def compute_row_linear_irr(purchase_dt, sale_dt, cost_basis, gross_sales, closing_costs) -> Optional[float]:
     """
-    Simple annualized IRR for a single buy (t0) and single sell (t1):
-        IRR = (NetProceeds/CostBasis)^(1/years) - 1
-        years = days_held / 365
+    Linear annualized IRR (non-compounding):
+      IRR_linear = ((NetProceeds / CostBasis) - 1) * (365 / DaysHeld)
     Returns percent (e.g., 18.5 for 18.5%) or None if not computable.
     """
     if pd.isna(purchase_dt) or pd.isna(sale_dt):
@@ -94,14 +93,10 @@ def compute_row_simple_irr(purchase_dt, sale_dt, cost_basis, gross_sales, closin
     net = gs - cc
     if cb <= 0 or net <= 0 or days <= 0:
         return None
-    years = days / 365.0
-    try:
-        irr = (net / cb) ** (1.0 / years) - 1.0
-    except Exception:
+    linear_annualized = ((net / cb) - 1.0) * (365.0 / days)
+    if np.isnan(linear_annualized) or np.isinf(linear_annualized):
         return None
-    if np.isnan(irr) or np.isinf(irr):
-        return None
-    return irr * 100.0
+    return linear_annualized * 100.0  # store as percent
 
 # ---------- Core processing ----------
 @st.cache_data(show_spinner=False)
@@ -186,9 +181,9 @@ def process_data(df_raw: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.D
     df['Realized_Markup'] = np.where(total_cost > 0, (gross / total_cost - 1.0) * 100.0, 0.0)
     df['Realized_Margin'] = np.where(gross > 0, (df['Realized_Gross_Profit'] / gross) * 100.0, 0.0)
 
-    # Simple IRR (percent)
+    # Linear IRR (percent)
     df['Realized_IRR'] = [
-        compute_row_simple_irr(dp, ds, cb, gs, cc)
+        compute_row_linear_irr(dp, ds, cb, gs, cc)
         for dp, ds, cb, gs, cc in zip(
             df.get('custom.Asset_Date_Purchased', pd.Series([pd.NaT]*len(df))),
             df.get('custom.Asset_Date_Sold', pd.Series([pd.NaT]*len(df))),
@@ -223,7 +218,6 @@ def create_summary_stats(df: pd.DataFrame) -> Dict[str, float]:
             'average_days','median_days','max_days','min_days',
             'average_irr','median_irr','max_irr','min_irr'
         ]}
-    # Columns (accept display or original)
     col = lambda d, disp, orig: disp if disp in d.columns else orig
     cost_basis_col = col(df, 'Cost Basis', 'custom.Asset_Cost_Basis')
     gross_sales_col = col(df, 'Gross Sales Price', 'custom.Asset_Gross_Sales_Price')
