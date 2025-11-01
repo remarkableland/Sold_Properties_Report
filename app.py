@@ -4,7 +4,7 @@ import numpy as np
 from datetime import datetime
 from io import BytesIO
 import xlsxwriter
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional, Iterable, List, Tuple as Tup
 
 try:
     from reportlab.lib.pagesizes import legal, landscape
@@ -76,6 +76,84 @@ def format_currency(v) -> str:
 
 def format_percentage(v) -> str:
     return f"{safe_numeric_value(v):.0f}%"
+
+# ---------- XIRR (date-aware IRR) ----------
+def _npv_at_rate(rate: float, cfs: List[Tup[pd.Timestamp, float]]) -> float:
+    """NPV with actual day count; rate is annual (decimal)."""
+    if rate <= -0.999999999:
+        # avoid division by zero or negative base ^ power issues
+        return np.inf
+    t0 = cfs[0][0]
+    npv = 0.0
+    for dt, amt in cfs:
+        years = (dt - t0).days / 365.0
+        npv += amt / ((1.0 + rate) ** years)
+    return npv
+
+def xirr(cashflows: List[Tup[pd.Timestamp, float]],
+         lo: float = -0.9999,
+         hi: float = 10.0,
+         tol: float = 1e-7,
+         max_iter: int = 200) -> Optional[float]:
+    """
+    Find r where NPV(r) ~= 0 using bisection.
+    Returns annual rate (decimal), or None if not solvable.
+    """
+    # Require at least one positive and one negative flow
+    vals = [cf[1] for cf in cashflows]
+    if not (any(v > 0 for v in vals) and any(v < 0 for v in vals)):
+        return None
+
+    # Sort by date, anchor to first date
+    cfs = sorted(cashflows, key=lambda x: x[0])
+
+    # Ensure sign change on [lo, hi]
+    f_lo = _npv_at_rate(lo, cfs)
+    f_hi = _npv_at_rate(hi, cfs)
+    # Try to expand if needed
+    expand = 0
+    while np.sign(f_lo) == np.sign(f_hi) and expand < 5:
+        hi *= 2
+        f_hi = _npv_at_rate(hi, cfs)
+        expand += 1
+
+    if np.isnan(f_lo) or np.isnan(f_hi) or np.sign(f_lo) == np.sign(f_hi):
+        return None
+
+    for _ in range(max_iter):
+        mid = (lo + hi) / 2.0
+        f_mid = _npv_at_rate(mid, cfs)
+        if abs(f_mid) < tol:
+            return mid
+        if np.sign(f_mid) == np.sign(f_lo):
+            lo, f_lo = mid, f_mid
+        else:
+            hi, f_hi = mid, f_mid
+    return mid  # best effort
+
+def compute_row_xirr(purchase_dt, sale_dt, cost_basis, gross_sales, closing_costs) -> Optional[float]:
+    """
+    Returns IRR as PERCENT (e.g., 18.5 for 18.5%),
+    or None if not computable.
+    """
+    if pd.isna(purchase_dt) or pd.isna(sale_dt):
+        return None
+    cost_basis = safe_numeric_value(cost_basis, 0.0)
+    gross_sales = safe_numeric_value(gross_sales, 0.0)
+    closing_costs = safe_numeric_value(closing_costs, 0.0)
+
+    net_proceeds = gross_sales - closing_costs
+    if cost_basis <= 0 or net_proceeds <= 0:
+        return None
+
+    cf = [
+        (pd.to_datetime(purchase_dt), -cost_basis),
+        (pd.to_datetime(sale_dt), net_proceeds)
+    ]
+    r = xirr(cf)
+    if r is None or np.isinf(r) or np.isnan(r):
+        return None
+    return r * 100.0  # store as percent, to match your other % fields
 
 # ---------- Core processing ----------
 @st.cache_data(show_spinner=False)
@@ -162,16 +240,29 @@ def process_data(df_raw: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.D
     df['Realized_Markup'] = np.where(total_cost > 0, (gross / total_cost - 1.0) * 100.0, 0.0)
     df['Realized_Margin'] = np.where(gross > 0, (df['Realized_Gross_Profit'] / gross) * 100.0, 0.0)
 
+    # Realized IRR (percent)
+    df['Realized_IRR'] = [
+        compute_row_xirr(dp, ds, cb, gs, cc)
+        for dp, ds, cb, gs, cc in zip(
+            df.get('custom.Asset_Date_Purchased', pd.Series([pd.NaT]*len(df))),
+            df.get('custom.Asset_Date_Sold', pd.Series([pd.NaT]*len(df))),
+            df.get('custom.Asset_Cost_Basis', pd.Series([0.0]*len(df))),
+            df.get('custom.Asset_Gross_Sales_Price', pd.Series([0.0]*len(df))),
+            df.get('custom.Asset_Closing_Costs', pd.Series([0.0]*len(df))),
+        )
+    ]
+
     # Quarter/Year
     df['Quarter_Year'] = pd.to_datetime(df.get('custom.Asset_Date_Sold')).apply(get_quarter_year)
 
     # Display copy
     df_display = df.rename(columns={k: v for k, v in FIELD_MAPPING.items() if k in df.columns})
     df_display = df_display.rename(columns={
-        'Days_Until_Sold': 'Days Until Sold',   # keep display as-is (PDF only change requested)
+        'Days_Until_Sold': 'Days Until Sold',
         'Realized_Gross_Profit': 'Realized Gross Profit',
         'Realized_Markup': 'Realized Markup',
-        'Realized_Margin': 'Realized Margin'
+        'Realized_Margin': 'Realized Margin',
+        'Realized_IRR': 'Realized IRR'  # keep as percent value
     })
 
     error_df = pd.DataFrame(error_rows)
@@ -183,7 +274,8 @@ def create_summary_stats(df: pd.DataFrame) -> Dict[str, float]:
             'total_properties','total_cost_basis','total_gross_sales','total_closing_costs','total_gross_profit',
             'average_markup','median_markup','max_markup','min_markup',
             'average_margin','median_margin',
-            'average_days','median_days','max_days','min_days'
+            'average_days','median_days','max_days','min_days',
+            'average_irr','median_irr','max_irr','min_irr'
         ]}
     # Resolve either display or original column names
     cost_basis_col = 'Cost Basis' if 'Cost Basis' in df.columns else 'custom.Asset_Cost_Basis'
@@ -192,6 +284,7 @@ def create_summary_stats(df: pd.DataFrame) -> Dict[str, float]:
     gross_profit_col = 'Realized Gross Profit' if 'Realized Gross Profit' in df.columns else 'Realized_Gross_Profit'
     markup_col = 'Realized Markup' if 'Realized Markup' in df.columns else 'Realized_Markup'
     margin_col = 'Realized Margin' if 'Realized Margin' in df.columns else 'Realized_Margin'
+    irr_col = 'Realized IRR' if 'Realized IRR' in df.columns else 'Realized_IRR'
     days_col = 'Days Until Sold' if 'Days Until Sold' in df.columns else 'Days_Until_Sold'
 
     numeric = lambda s: pd.to_numeric(s, errors='coerce')
@@ -203,6 +296,7 @@ def create_summary_stats(df: pd.DataFrame) -> Dict[str, float]:
 
     markup_vals = numeric(df[markup_col]).dropna()
     margin_vals = numeric(df[margin_col]).dropna()
+    irr_vals = numeric(df[irr_col]).dropna()  # already in percent units
     days_vals = numeric(df[days_col]).dropna()
 
     return {
@@ -221,9 +315,13 @@ def create_summary_stats(df: pd.DataFrame) -> Dict[str, float]:
         'median_days': float(days_vals.median()) if len(days_vals) else 0.0,
         'max_days': float(days_vals.max()) if len(days_vals) else 0.0,
         'min_days': float(days_vals.min()) if len(days_vals) else 0.0,
+        'average_irr': float(irr_vals.mean()) if len(irr_vals) else 0.0,
+        'median_irr': float(irr_vals.median()) if len(irr_vals) else 0.0,
+        'max_irr': float(irr_vals.max()) if len(irr_vals) else 0.0,
+        'min_irr': float(irr_vals.min()) if len(irr_vals) else 0.0,
     }
 
-# ---------- Excel builders ----------
+# ---------- Excel builders (unchanged output fields unless you want IRR there too) ----------
 def create_excel_download(df_original: pd.DataFrame, filename: str) -> BytesIO:
     output = BytesIO()
     wb = xlsxwriter.Workbook(output, {'in_memory': True, 'nan_inf_to_errors': True})
@@ -245,7 +343,8 @@ def create_excel_download(df_original: pd.DataFrame, filename: str) -> BytesIO:
                'custom.All_Asset_Surveyed_Acres','custom.Asset_Cost_Basis','custom.Asset_Date_Purchased',
                'primary_opportunity_status_label','Days_Until_Sold','custom.Asset_Date_Sold',
                'custom.Asset_Gross_Sales_Price','custom.Asset_Closing_Costs',
-               'Realized_Gross_Profit','Realized_Markup','Realized_Margin']
+               'Realized_Gross_Profit','Realized_Markup','Realized_Margin',
+               'Realized_IRR']  # include IRR in Excel as well, since it’s useful
 
     for col, h in enumerate(headers):
         ws.write(0, col, h, header_fmt)
@@ -305,7 +404,7 @@ def create_excel_download(df_original: pd.DataFrame, filename: str) -> BytesIO:
             ws.write_datetime(row, 10, pd.to_datetime(ds).to_pydatetime(), date_fmt)
 
         # Gross Sales
-        gross = safe_numeric_value(data.get('custom.Asset_Gross_SALES_Price', data.get('custom.Asset_Gross_Sales_Price', 0)))
+        gross = safe_numeric_value(data.get('custom.Asset_Gross_Sales_Price', 0))
         ws.write_number(row, 11, gross, currency_fmt if gross else currency_hi)
 
         # Closing Costs
@@ -323,6 +422,13 @@ def create_excel_download(df_original: pd.DataFrame, filename: str) -> BytesIO:
         # Margin (percent expects 0–1)
         mar = safe_numeric_value(data.get('Realized_Margin', 0)) / 100.0
         ws.write_number(row, 15, mar, pct_fmt if mar else pct_hi)
+
+        # IRR (percent expects 0–1)
+        irr = data.get('Realized_IRR')
+        if pd.isna(irr) or irr is None:
+            ws.write_number(row, 16, 0.0, pct_hi)
+        else:
+            ws.write_number(row, 16, safe_numeric_value(irr)/100.0, pct_fmt)
 
     # Column sizes
     ws.set_column(0, 0, 12)
@@ -401,7 +507,7 @@ def create_error_report_excel(error_df: pd.DataFrame, total_records: int, proces
     output.seek(0)
     return output
 
-# ---------- PDF builder (PDF labels updated to "Days Held") ----------
+# ---------- PDF builder (labels still "Days Held" from your last change) ----------
 def create_pdf_download(df_dict: Dict[str, pd.DataFrame], filename: str) -> Optional[BytesIO]:
     if not REPORTLAB_AVAILABLE:
         st.error("PDF generation requires reportlab. Please install it: pip install reportlab")
@@ -432,10 +538,9 @@ def create_pdf_download(df_dict: Dict[str, pd.DataFrame], filename: str) -> Opti
 
         story.append(Paragraph(f"{quarter}", quarter_style))
 
-        # --- header uses Days Held now ---
         headers = ['Property\nName','Owner','State','County','Acres','Cost\nBasis',
                    'Date\nPurchased','Days\nHeld','Date\nSold','Gross Sales\nPrice',
-                   'Closing\nCosts','Realized Gross\nProfit','Realized\nMarkup','Realized\nMargin']
+                   'Closing\nCosts','Realized Gross\nProfit','Realized\nMarkup','Realized\nMargin','Realized\nIRR']
         table_data = [headers]
 
         for _, row in qdf.iterrows():
@@ -452,18 +557,20 @@ def create_pdf_download(df_dict: Dict[str, pd.DataFrame], filename: str) -> Opti
                 f"{safe_numeric_value(row.get('Acres', 0)):.1f}",
                 f"${safe_numeric_value(row.get('Cost Basis', 0)):,.0f}",
                 dstr(row.get('Date Purchased')),
-                f"{safe_int_value(row.get('Days Until Sold', 0)) if pd.notna(row.get('Days Until Sold')) else ''}",  # value unchanged; label changed
+                f"{safe_int_value(row.get('Days Until Sold', 0)) if pd.notna(row.get('Days Until Sold')) else ''}",
                 dstr(row.get('Date Sold')),
                 f"${safe_numeric_value(row.get('Gross Sales Price', 0)):,.0f}",
                 f"${safe_numeric_value(row.get('Closing Costs', 0)):,.0f}",
                 f"${safe_numeric_value(row.get('Realized Gross Profit', 0)):,.0f}",
                 f"{safe_numeric_value(row.get('Realized Markup', 0)):.0f}%",
-                f"{safe_numeric_value(row.get('Realized Margin', 0)):.0f}%"
+                f"{safe_numeric_value(row.get('Realized Margin', 0)):.0f}%",
+                (f"{safe_numeric_value(row.get('Realized IRR', np.nan)):.0f}%" if pd.notna(row.get('Realized IRR', np.nan)) else '')
             ]
             table_data.append(r)
 
-        col_widths = [2.0*inch,1.2*inch,0.4*inch,0.9*inch,0.5*inch,0.9*inch,
-                      0.9*inch,0.6*inch,0.9*inch,1.1*inch,0.9*inch,1.1*inch,0.6*inch,0.6*inch]
+        # Slightly squeeze columns to add IRR
+        col_widths = [1.9*inch,1.1*inch,0.4*inch,0.85*inch,0.5*inch,0.85*inch,
+                      0.85*inch,0.6*inch,0.85*inch,1.05*inch,0.85*inch,1.05*inch,0.6*inch,0.6*inch,0.6*inch]
         table = Table(table_data, colWidths=col_widths, repeatRows=1)
         table.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.darkblue),
@@ -490,13 +597,13 @@ def create_pdf_download(df_dict: Dict[str, pd.DataFrame], filename: str) -> Opti
         story.append(Spacer(1, 12))
 
         stats = create_summary_stats(qdf)
-        # --- summary labels use Days Held now ---
         sdata = [
             ['Metric','Value','Metric','Value'],
             ['Properties Sold', f"{stats['total_properties']}", 'Total Cost Basis', f"${stats['total_cost_basis']:,.0f}"],
             ['Total Gross Sales', f"${stats['total_gross_sales']:,.0f}", 'Total Gross Profit', f"${stats['total_gross_profit']:,.0f}"],
             ['Average Markup', f"{stats['average_markup']:.0f}%", 'Median Markup', f"{stats['median_markup']:.0f}%"],
             ['Average Margin', f"{stats['average_margin']:.0f}%", 'Median Margin', f"{stats['median_margin']:.0f}%"],
+            ['Average IRR', f"{stats['average_irr']:.0f}%", 'Median IRR', f"{stats['median_irr']:.0f}%"],
             ['Average Days Held', f"{stats['average_days']:.0f}", 'Median Days Held', f"{stats['median_days']:.0f}"]
         ]
         stab = Table(sdata, colWidths=[1.5*inch,1.5*inch,1.5*inch,1.5*inch])
@@ -525,7 +632,6 @@ def create_pdf_download(df_dict: Dict[str, pd.DataFrame], filename: str) -> Opti
         overall = create_summary_stats(all_data)
         story.append(Paragraph("Overall Summary", quarter_style))
 
-        # --- overall labels use Days Held now ---
         overall_data = [
             ['Total Properties', f"{overall['total_properties']}", '', ''],
             ['Total Gross Sales','Total Cost Basis','Total Closing Costs','Total Gross Profit'],
@@ -534,8 +640,8 @@ def create_pdf_download(df_dict: Dict[str, pd.DataFrame], filename: str) -> Opti
             ['Average Markup','Median Markup','Average Margin','Median Margin'],
             [f"{overall['average_markup']:.0f}%", f"{overall['median_markup']:.0f}%",
              f"{overall['average_margin']:.0f}%", f"{overall['median_margin']:.0f}%"],
-            ['Average Days Held','Median Days Held','Max Days Held','Min Days Held'],
-            [f"{overall['average_days']:.0f}", f"{overall['median_days']:.0f}",
+            ['Average IRR','Median IRR','Max Days Held','Min Days Held'],
+            [f"{overall['average_irr']:.0f}%", f"{overall['median_irr']:.0f}%",
              f"{overall['max_days']:.0f}", f"{overall['min_days']:.0f}"]
         ]
         ostab = Table(overall_data, colWidths=[1.75*inch]*4)
@@ -682,7 +788,7 @@ def main():
             'Property Name','Owner','State','County','Acres','Cost Basis',
             'Date Purchased','Opportunity Status','Days Until Sold',
             'Date Sold','Gross Sales Price','Closing Costs','Realized Gross Profit',
-            'Realized Markup','Realized Margin'
+            'Realized Markup','Realized Margin','Realized IRR'
         ]
         qview = qdf[display_cols].copy()
 
@@ -690,7 +796,7 @@ def main():
         for col in ('Cost Basis','Gross Sales Price','Closing Costs','Realized Gross Profit'):
             if col in qview.columns:
                 qview[col] = qview[col].apply(format_currency)
-        for col in ('Realized Markup','Realized Margin'):
+        for col in ('Realized Markup','Realized Margin','Realized IRR'):
             if col in qview.columns:
                 qview[col] = qview[col].apply(format_percentage)
         if 'Date Purchased' in qview.columns:
@@ -718,10 +824,10 @@ def main():
         c4.metric("Median Margin", format_percentage(stats['median_margin']))
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Average Days to Sell", f"{safe_numeric_value(stats['average_days']):.0f}")
-        c2.metric("Median Days to Sell", f"{safe_numeric_value(stats['median_days']):.0f}")
-        c3.metric("Max Days to Sell", f"{safe_numeric_value(stats['max_days']):.0f}")
-        c4.metric("Min Days to Sell", f"{safe_numeric_value(stats['min_days']):.0f}")
+        c1.metric("Average IRR", format_percentage(stats['average_irr']))
+        c2.metric("Median IRR", format_percentage(stats['median_irr']))
+        c3.metric("Max Days Held", f"{safe_numeric_value(stats['max_days']):.0f}")
+        c4.metric("Min Days Held", f"{safe_numeric_value(stats['min_days']):.0f}")
 
         st.divider()
 
@@ -747,10 +853,10 @@ def main():
         c4.metric("Median Margin", format_percentage(overall['median_margin']))
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Average Days to Sell", f"{safe_numeric_value(overall['average_days']):.0f}")
-        c2.metric("Median Days to Sell", f"{safe_numeric_value(overall['median_days']):.0f}")
-        c3.metric("Max Days to Sell", f"{safe_numeric_value(overall['max_days']):.0f}")
-        c4.metric("Min Days to Sell", f"{safe_numeric_value(overall['min_days']):.0f}")
+        c1.metric("Average IRR", format_percentage(overall['average_irr']))
+        c2.metric("Median IRR", format_percentage(overall['median_irr']))
+        c3.metric("Max Days Held", f"{safe_numeric_value(overall['max_days']):.0f}")
+        c4.metric("Min Days Held", f"{safe_numeric_value(overall['min_days']):.0f}")
 
     # Downloads
     st.subheader("Download Reports")
@@ -780,7 +886,7 @@ def main():
             data=xfile.getvalue(),
             file_name=excel_name,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            help="Excel with original Close.com field names and ID for data correction"
+            help="Excel with original Close.com field names (now includes Realized_IRR)"
         )
 
     with d2:
