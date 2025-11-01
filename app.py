@@ -1,4 +1,4 @@
-mport streamlit as st
+import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -88,7 +88,7 @@ def sort_quarters_chronologically(quarters):
     
     return sorted(quarters, key=quarter_sort_key)
 
-def calculate_days_held(date_purchased, date_sold):
+def calculate_days_until_sold(date_purchased, date_sold):
     """Calculate days between purchase and sale"""
     if pd.isna(date_purchased) or pd.isna(date_sold):
         return None
@@ -201,8 +201,8 @@ def process_data(df):
             df_processed[col] = df_processed[col].apply(lambda x: safe_numeric_value(x, 0))
     
     # Calculate derived fields with safe handling (using original field names)
-    df_processed['Days_Held'] = df_processed.apply(
-        lambda row: calculate_days_held(row.get('custom.Asset_Date_Purchased'), row.get('custom.Asset_Date_Sold')), axis=1
+    df_processed['Days_Until_Sold'] = df_processed.apply(
+        lambda row: calculate_days_until_sold(row.get('custom.Asset_Date_Purchased'), row.get('custom.Asset_Date_Sold')), axis=1
     )
     
     df_processed['Realized_Gross_Profit'] = df_processed.apply(
@@ -238,7 +238,7 @@ def process_data(df):
     
     # Rename calculated fields for display
     df_display = df_display.rename(columns={
-        'Days_Held': 'Days Held',
+        'Days_Until_Sold': 'Days Until Sold',
         'Realized_Gross_Profit': 'Realized Gross Profit',
         'Realized_Markup': 'Realized Markup',
         'Realized_Margin': 'Realized Margin'
@@ -321,7 +321,7 @@ def create_excel_download(df_original, filename):
     # Headers using original Close.com field names, including ID
     headers = ['id', 'display_name', 'custom.Asset_Owner', 'custom.All_State', 'custom.All_County', 
                'custom.All_Asset_Surveyed_Acres', 'custom.Asset_Cost_Basis', 'custom.Asset_Date_Purchased',
-               'primary_opportunity_status_label', 'Days_Held', 'custom.Asset_Date_Sold', 
+               'primary_opportunity_status_label', 'Days_Until_Sold', 'custom.Asset_Date_Sold', 
                'custom.Asset_Gross_Sales_Price', 'custom.Asset_Closing_Costs',
                'Realized_Gross_Profit', 'Realized_Markup', 'Realized_Margin']
     
@@ -393,12 +393,12 @@ def create_excel_download(df_original, filename):
         else:
             worksheet.write(row, 8, opp_status)
         
-        # Handle Days Held with safe conversion
-        days_held = safe_int_value(data.get('Days_Held', 0))
-        if days_held == 0:
+        # Handle Days Until Sold with safe conversion
+        days_sold = safe_int_value(data.get('Days_Until_Sold', 0))
+        if days_sold == 0:
             worksheet.write(row, 9, 0, number_highlight_format)
         else:
-            worksheet.write(row, 9, days_held, number_format)
+            worksheet.write(row, 9, days_sold, number_format)
         
         # Handle Date Sold with null check and highlighting
         date_sold = data.get('custom.Asset_Date_Sold')
@@ -644,7 +644,7 @@ def create_pdf_download(df_dict, filename):
         
         # Prepare table data with wrapped headers (using display names for PDF)
         table_headers = ['Property\nName', 'Owner', 'State', 'County', 'Acres', 'Cost\nBasis',
-                        'Date\nPurchased', 'Days\nHeld', 'Date\nSold', 'Gross Sales\nPrice',
+                        'Date\nPurchased', 'Days\nUntil Sold', 'Date\nSold', 'Gross Sales\nPrice',
                         'Closing\nCosts', 'Realized Gross\nProfit', 'Realized\nMarkup', 'Realized\nMargin']
         
         table_data = [table_headers]
@@ -666,7 +666,7 @@ def create_pdf_download(df_dict, filename):
                 f"{safe_numeric_value(row.get('Acres', 0)):.1f}",
                 f"${safe_numeric_value(row.get('Cost Basis', 0)):,.0f}",
                 row.get('Date Purchased').strftime('%m/%d/%Y') if pd.notna(row.get('Date Purchased')) else '',
-                f"{safe_int_value(row.get('Days Held', 0))}",
+                f"{safe_int_value(row.get('Days Until Sold', 0))}",
                 row.get('Date Sold').strftime('%m/%d/%Y') if pd.notna(row.get('Date Sold')) else '',
                 f"${safe_numeric_value(row.get('Gross Sales Price', 0)):,.0f}",
                 f"${safe_numeric_value(row.get('Closing Costs', 0)):,.0f}",
@@ -852,7 +852,7 @@ def create_summary_stats(df):
     gross_profit_col = 'Realized Gross Profit' if 'Realized Gross Profit' in df.columns else 'Realized_Gross_Profit'
     markup_col = 'Realized Markup' if 'Realized Markup' in df.columns else 'Realized_Markup'
     margin_col = 'Realized Margin' if 'Realized Margin' in df.columns else 'Realized_Margin'
-    days_col = 'Days Held' if 'Days Held' in df.columns else 'Days_Held'
+    days_col = 'Days Until Sold' if 'Days Until Sold' in df.columns else 'Days_Until_Sold'
     
     cost_basis_sum = df[cost_basis_col].apply(lambda x: safe_numeric_value(x, 0)).sum()
     gross_sales_sum = df[gross_sales_col].apply(lambda x: safe_numeric_value(x, 0)).sum()
@@ -1014,7 +1014,7 @@ def main():
                 # Prepare display data
                 display_columns = [
                     'Property Name', 'Owner', 'State', 'County', 'Acres', 'Cost Basis',
-                    'Date Purchased', 'Opportunity Status', 'Days Held',
+                    'Date Purchased', 'Opportunity Status', 'Days Until Sold',
                     'Date Sold', 'Gross Sales Price', 'Closing Costs', 'Realized Gross Profit', 
                     'Realized Markup', 'Realized Margin'
                 ]
