@@ -89,11 +89,10 @@ def process_data(df_raw: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.D
     if 'custom.Asset_Date_Sold' in df.columns:
         df['custom.Asset_Date_Sold'] = pd.to_datetime(df['custom.Asset_Date_Sold'], errors='coerce', utc=False)
 
-    # Build error report (do this before filtering to 'Sold')
+    # Build error report
     error_rows = []
 
     if 'primary_opportunity_status_label' in df.columns:
-        # Non-"Sold"
         mask_non_sold = df['primary_opportunity_status_label'].notna() & (df['primary_opportunity_status_label'] != 'Sold')
         for idx, row in df[mask_non_sold].iterrows():
             error_rows.append({
@@ -107,7 +106,6 @@ def process_data(df_raw: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.D
                 'Row Number': idx + 2
             })
 
-        # NULL status (separate bucket)
         mask_null_status = df['primary_opportunity_status_label'].isna()
         for idx, row in df[mask_null_status].iterrows():
             error_rows.append({
@@ -139,7 +137,7 @@ def process_data(df_raw: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.D
                 'Row Number': idx + 2
             })
 
-    # Numeric coercions (vectorized)
+    # Numeric coercions
     for c in ['custom.All_Asset_Surveyed_Acres',
               'custom.Asset_Cost_Basis',
               'custom.Asset_Gross_Sales_Price',
@@ -147,7 +145,7 @@ def process_data(df_raw: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.D
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0.0)
 
-    # Vectorized derived fields
+    # Derived fields
     date_purch = df.get('custom.Asset_Date_Purchased', pd.Series([pd.NaT]*len(df)))
     date_sold  = df.get('custom.Asset_Date_Sold', pd.Series([pd.NaT]*len(df)))
 
@@ -161,7 +159,6 @@ def process_data(df_raw: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.D
     df['Realized_Gross_Profit'] = gross - basis - closec
 
     total_cost = basis + closec
-    # Avoid divide by zero
     df['Realized_Markup'] = np.where(total_cost > 0, (gross / total_cost - 1.0) * 100.0, 0.0)
     df['Realized_Margin'] = np.where(gross > 0, (df['Realized_Gross_Profit'] / gross) * 100.0, 0.0)
 
@@ -171,7 +168,7 @@ def process_data(df_raw: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.D
     # Display copy
     df_display = df.rename(columns={k: v for k, v in FIELD_MAPPING.items() if k in df.columns})
     df_display = df_display.rename(columns={
-        'Days_Until_Sold': 'Days Until Sold',
+        'Days_Until_Sold': 'Days Until Sold',   # keep display as-is (PDF only change requested)
         'Realized_Gross_Profit': 'Realized Gross Profit',
         'Realized_Markup': 'Realized Markup',
         'Realized_Margin': 'Realized Margin'
@@ -287,7 +284,6 @@ def create_excel_download(df_original: pd.DataFrame, filename: str) -> BytesIO:
         if pd.isna(dp):
             ws.write(row, 7, '', date_hi)
         else:
-            # xlsxwriter accepts python datetime; convert pandas Timestamp if present
             ws.write_datetime(row, 7, pd.to_datetime(dp).to_pydatetime(), date_fmt)
 
         # Opportunity Status
@@ -309,7 +305,7 @@ def create_excel_download(df_original: pd.DataFrame, filename: str) -> BytesIO:
             ws.write_datetime(row, 10, pd.to_datetime(ds).to_pydatetime(), date_fmt)
 
         # Gross Sales
-        gross = safe_numeric_value(data.get('custom.Asset_Gross_Sales_Price', 0))
+        gross = safe_numeric_value(data.get('custom.Asset_Gross_SALES_Price', data.get('custom.Asset_Gross_Sales_Price', 0)))
         ws.write_number(row, 11, gross, currency_fmt if gross else currency_hi)
 
         # Closing Costs
@@ -405,7 +401,7 @@ def create_error_report_excel(error_df: pd.DataFrame, total_records: int, proces
     output.seek(0)
     return output
 
-# ---------- PDF builder ----------
+# ---------- PDF builder (PDF labels updated to "Days Held") ----------
 def create_pdf_download(df_dict: Dict[str, pd.DataFrame], filename: str) -> Optional[BytesIO]:
     if not REPORTLAB_AVAILABLE:
         st.error("PDF generation requires reportlab. Please install it: pip install reportlab")
@@ -436,8 +432,9 @@ def create_pdf_download(df_dict: Dict[str, pd.DataFrame], filename: str) -> Opti
 
         story.append(Paragraph(f"{quarter}", quarter_style))
 
+        # --- header uses Days Held now ---
         headers = ['Property\nName','Owner','State','County','Acres','Cost\nBasis',
-                   'Date\nPurchased','Days\nUntil Sold','Date\nSold','Gross Sales\nPrice',
+                   'Date\nPurchased','Days\nHeld','Date\nSold','Gross Sales\nPrice',
                    'Closing\nCosts','Realized Gross\nProfit','Realized\nMarkup','Realized\nMargin']
         table_data = [headers]
 
@@ -445,7 +442,7 @@ def create_pdf_download(df_dict: Dict[str, pd.DataFrame], filename: str) -> Opti
             prop_name = str(row.get('Property Name', '') or '')
             prop_para = Paragraph(prop_name, cell_style) if len(prop_name) > 25 else prop_name
 
-            def dstr(x): 
+            def dstr(x):
                 return pd.to_datetime(x).strftime('%m/%d/%Y') if pd.notna(x) else ''
             r = [
                 prop_para,
@@ -455,7 +452,7 @@ def create_pdf_download(df_dict: Dict[str, pd.DataFrame], filename: str) -> Opti
                 f"{safe_numeric_value(row.get('Acres', 0)):.1f}",
                 f"${safe_numeric_value(row.get('Cost Basis', 0)):,.0f}",
                 dstr(row.get('Date Purchased')),
-                f"{safe_int_value(row.get('Days Until Sold', 0)) if pd.notna(row.get('Days Until Sold')) else ''}",
+                f"{safe_int_value(row.get('Days Until Sold', 0)) if pd.notna(row.get('Days Until Sold')) else ''}",  # value unchanged; label changed
                 dstr(row.get('Date Sold')),
                 f"${safe_numeric_value(row.get('Gross Sales Price', 0)):,.0f}",
                 f"${safe_numeric_value(row.get('Closing Costs', 0)):,.0f}",
@@ -493,13 +490,14 @@ def create_pdf_download(df_dict: Dict[str, pd.DataFrame], filename: str) -> Opti
         story.append(Spacer(1, 12))
 
         stats = create_summary_stats(qdf)
+        # --- summary labels use Days Held now ---
         sdata = [
             ['Metric','Value','Metric','Value'],
             ['Properties Sold', f"{stats['total_properties']}", 'Total Cost Basis', f"${stats['total_cost_basis']:,.0f}"],
             ['Total Gross Sales', f"${stats['total_gross_sales']:,.0f}", 'Total Gross Profit', f"${stats['total_gross_profit']:,.0f}"],
             ['Average Markup', f"{stats['average_markup']:.0f}%", 'Median Markup', f"{stats['median_markup']:.0f}%"],
             ['Average Margin', f"{stats['average_margin']:.0f}%", 'Median Margin', f"{stats['median_margin']:.0f}%"],
-            ['Average Days to Sell', f"{stats['average_days']:.0f}", 'Median Days to Sell', f"{stats['median_days']:.0f}"]
+            ['Average Days Held', f"{stats['average_days']:.0f}", 'Median Days Held', f"{stats['median_days']:.0f}"]
         ]
         stab = Table(sdata, colWidths=[1.5*inch,1.5*inch,1.5*inch,1.5*inch])
         stab.setStyle(TableStyle([
@@ -527,6 +525,7 @@ def create_pdf_download(df_dict: Dict[str, pd.DataFrame], filename: str) -> Opti
         overall = create_summary_stats(all_data)
         story.append(Paragraph("Overall Summary", quarter_style))
 
+        # --- overall labels use Days Held now ---
         overall_data = [
             ['Total Properties', f"{overall['total_properties']}", '', ''],
             ['Total Gross Sales','Total Cost Basis','Total Closing Costs','Total Gross Profit'],
@@ -535,7 +534,7 @@ def create_pdf_download(df_dict: Dict[str, pd.DataFrame], filename: str) -> Opti
             ['Average Markup','Median Markup','Average Margin','Median Margin'],
             [f"{overall['average_markup']:.0f}%", f"{overall['median_markup']:.0f}%",
              f"{overall['average_margin']:.0f}%", f"{overall['median_margin']:.0f}%"],
-            ['Average Days to Sell','Median Days to Sell','Max Days to Sell','Min Days to Sell'],
+            ['Average Days Held','Median Days Held','Max Days Held','Min Days Held'],
             [f"{overall['average_days']:.0f}", f"{overall['median_days']:.0f}",
              f"{overall['max_days']:.0f}", f"{overall['min_days']:.0f}"]
         ]
@@ -755,14 +754,12 @@ def main():
 
     # Downloads
     st.subheader("Download Reports")
-    # Original processed rows aligned with filters (for Excel with original field names)
     filtered_original = df_proc.copy()
     if selected_quarters:
         filtered_original = filtered_original[filtered_original['Quarter_Year'].isin(selected_quarters)]
     if selected_owners:
         filtered_original = filtered_original[filtered_original['custom.Asset_Owner'].isin(selected_owners)]
 
-    # Quarter dict for PDF (display names)
     quarter_data_dict = {q: f[f['Quarter_Year'] == q].copy() for q in quarters_to_show}
 
     today = datetime.now().strftime("%Y%m%d")
