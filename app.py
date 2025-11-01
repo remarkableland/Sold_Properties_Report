@@ -4,7 +4,7 @@ import numpy as np
 from datetime import datetime
 from io import BytesIO
 import xlsxwriter
-from typing import Dict, Tuple, Optional, Iterable, List, Tuple as Tup
+from typing import Dict, Tuple, Optional
 
 try:
     from reportlab.lib.pagesizes import legal, landscape
@@ -77,83 +77,31 @@ def format_currency(v) -> str:
 def format_percentage(v) -> str:
     return f"{safe_numeric_value(v):.0f}%"
 
-# ---------- XIRR (date-aware IRR) ----------
-def _npv_at_rate(rate: float, cfs: List[Tup[pd.Timestamp, float]]) -> float:
-    """NPV with actual day count; rate is annual (decimal)."""
-    if rate <= -0.999999999:
-        # avoid division by zero or negative base ^ power issues
-        return np.inf
-    t0 = cfs[0][0]
-    npv = 0.0
-    for dt, amt in cfs:
-        years = (dt - t0).days / 365.0
-        npv += amt / ((1.0 + rate) ** years)
-    return npv
-
-def xirr(cashflows: List[Tup[pd.Timestamp, float]],
-         lo: float = -0.9999,
-         hi: float = 10.0,
-         tol: float = 1e-7,
-         max_iter: int = 200) -> Optional[float]:
+# ---------- Simple annualized IRR (compounded annually via day-fraction) ----------
+def compute_row_simple_irr(purchase_dt, sale_dt, cost_basis, gross_sales, closing_costs) -> Optional[float]:
     """
-    Find r where NPV(r) ~= 0 using bisection.
-    Returns annual rate (decimal), or None if not solvable.
-    """
-    # Require at least one positive and one negative flow
-    vals = [cf[1] for cf in cashflows]
-    if not (any(v > 0 for v in vals) and any(v < 0 for v in vals)):
-        return None
-
-    # Sort by date, anchor to first date
-    cfs = sorted(cashflows, key=lambda x: x[0])
-
-    # Ensure sign change on [lo, hi]
-    f_lo = _npv_at_rate(lo, cfs)
-    f_hi = _npv_at_rate(hi, cfs)
-    # Try to expand if needed
-    expand = 0
-    while np.sign(f_lo) == np.sign(f_hi) and expand < 5:
-        hi *= 2
-        f_hi = _npv_at_rate(hi, cfs)
-        expand += 1
-
-    if np.isnan(f_lo) or np.isnan(f_hi) or np.sign(f_lo) == np.sign(f_hi):
-        return None
-
-    for _ in range(max_iter):
-        mid = (lo + hi) / 2.0
-        f_mid = _npv_at_rate(mid, cfs)
-        if abs(f_mid) < tol:
-            return mid
-        if np.sign(f_mid) == np.sign(f_lo):
-            lo, f_lo = mid, f_mid
-        else:
-            hi, f_hi = mid, f_mid
-    return mid  # best effort
-
-def compute_row_xirr(purchase_dt, sale_dt, cost_basis, gross_sales, closing_costs) -> Optional[float]:
-    """
-    Returns IRR as PERCENT (e.g., 18.5 for 18.5%),
-    or None if not computable.
+    Simple annualized IRR for a single buy (t0) and single sell (t1):
+        IRR = (NetProceeds/CostBasis)^(1/years) - 1
+        years = days_held / 365
+    Returns percent (e.g., 18.5 for 18.5%) or None if not computable.
     """
     if pd.isna(purchase_dt) or pd.isna(sale_dt):
         return None
-    cost_basis = safe_numeric_value(cost_basis, 0.0)
-    gross_sales = safe_numeric_value(gross_sales, 0.0)
-    closing_costs = safe_numeric_value(closing_costs, 0.0)
-
-    net_proceeds = gross_sales - closing_costs
-    if cost_basis <= 0 or net_proceeds <= 0:
+    days = (pd.to_datetime(sale_dt) - pd.to_datetime(purchase_dt)).days
+    cb = safe_numeric_value(cost_basis, 0.0)
+    gs = safe_numeric_value(gross_sales, 0.0)
+    cc = safe_numeric_value(closing_costs, 0.0)
+    net = gs - cc
+    if cb <= 0 or net <= 0 or days <= 0:
         return None
-
-    cf = [
-        (pd.to_datetime(purchase_dt), -cost_basis),
-        (pd.to_datetime(sale_dt), net_proceeds)
-    ]
-    r = xirr(cf)
-    if r is None or np.isinf(r) or np.isnan(r):
+    years = days / 365.0
+    try:
+        irr = (net / cb) ** (1.0 / years) - 1.0
+    except Exception:
         return None
-    return r * 100.0  # store as percent, to match your other % fields
+    if np.isnan(irr) or np.isinf(irr):
+        return None
+    return irr * 100.0
 
 # ---------- Core processing ----------
 @st.cache_data(show_spinner=False)
@@ -161,13 +109,13 @@ def process_data(df_raw: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.D
     df = df_raw.copy()
     total_records = len(df)
 
-    # Parse dates (vectorized, tolerant)
+    # Parse dates
     if 'custom.Asset_Date_Purchased' in df.columns:
         df['custom.Asset_Date_Purchased'] = pd.to_datetime(df['custom.Asset_Date_Purchased'], errors='coerce', utc=False)
     if 'custom.Asset_Date_Sold' in df.columns:
         df['custom.Asset_Date_Sold'] = pd.to_datetime(df['custom.Asset_Date_Sold'], errors='coerce', utc=False)
 
-    # Build error report
+    # Error report
     error_rows = []
 
     if 'primary_opportunity_status_label' in df.columns:
@@ -197,10 +145,8 @@ def process_data(df_raw: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.D
                 'Row Number': idx + 2
             })
 
-        # Keep only Sold
         df = df[df['primary_opportunity_status_label'] == 'Sold'].copy()
 
-    # Missing Date Sold among the Sold set
     if 'custom.Asset_Date_Sold' in df.columns:
         mask_missing_date = df['custom.Asset_Date_Sold'].isna()
         for idx, row in df[mask_missing_date].iterrows():
@@ -235,14 +181,14 @@ def process_data(df_raw: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.D
     closec = df.get('custom.Asset_Closing_Costs', pd.Series([0.0]*len(df)))
 
     df['Realized_Gross_Profit'] = gross - basis - closec
-
     total_cost = basis + closec
+
     df['Realized_Markup'] = np.where(total_cost > 0, (gross / total_cost - 1.0) * 100.0, 0.0)
     df['Realized_Margin'] = np.where(gross > 0, (df['Realized_Gross_Profit'] / gross) * 100.0, 0.0)
 
-    # Realized IRR (percent)
+    # Simple IRR (percent)
     df['Realized_IRR'] = [
-        compute_row_xirr(dp, ds, cb, gs, cc)
+        compute_row_simple_irr(dp, ds, cb, gs, cc)
         for dp, ds, cb, gs, cc in zip(
             df.get('custom.Asset_Date_Purchased', pd.Series([pd.NaT]*len(df))),
             df.get('custom.Asset_Date_Sold', pd.Series([pd.NaT]*len(df))),
@@ -255,14 +201,14 @@ def process_data(df_raw: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.D
     # Quarter/Year
     df['Quarter_Year'] = pd.to_datetime(df.get('custom.Asset_Date_Sold')).apply(get_quarter_year)
 
-    # Display copy
+    # Display copy for UI/PDF
     df_display = df.rename(columns={k: v for k, v in FIELD_MAPPING.items() if k in df.columns})
     df_display = df_display.rename(columns={
         'Days_Until_Sold': 'Days Until Sold',
         'Realized_Gross_Profit': 'Realized Gross Profit',
         'Realized_Markup': 'Realized Markup',
         'Realized_Margin': 'Realized Margin',
-        'Realized_IRR': 'Realized IRR'  # keep as percent value
+        'Realized_IRR': 'Realized IRR'
     })
 
     error_df = pd.DataFrame(error_rows)
@@ -277,15 +223,16 @@ def create_summary_stats(df: pd.DataFrame) -> Dict[str, float]:
             'average_days','median_days','max_days','min_days',
             'average_irr','median_irr','max_irr','min_irr'
         ]}
-    # Resolve either display or original column names
-    cost_basis_col = 'Cost Basis' if 'Cost Basis' in df.columns else 'custom.Asset_Cost_Basis'
-    gross_sales_col = 'Gross Sales Price' if 'Gross Sales Price' in df.columns else 'custom.Asset_Gross_Sales_Price'
-    closing_costs_col = 'Closing Costs' if 'Closing Costs' in df.columns else 'custom.Asset_Closing_Costs'
-    gross_profit_col = 'Realized Gross Profit' if 'Realized Gross Profit' in df.columns else 'Realized_Gross_Profit'
-    markup_col = 'Realized Markup' if 'Realized Markup' in df.columns else 'Realized_Markup'
-    margin_col = 'Realized Margin' if 'Realized Margin' in df.columns else 'Realized_Margin'
-    irr_col = 'Realized IRR' if 'Realized IRR' in df.columns else 'Realized_IRR'
-    days_col = 'Days Until Sold' if 'Days Until Sold' in df.columns else 'Days_Until_Sold'
+    # Columns (accept display or original)
+    col = lambda d, disp, orig: disp if disp in d.columns else orig
+    cost_basis_col = col(df, 'Cost Basis', 'custom.Asset_Cost_Basis')
+    gross_sales_col = col(df, 'Gross Sales Price', 'custom.Asset_Gross_Sales_Price')
+    closing_costs_col = col(df, 'Closing Costs', 'custom.Asset_Closing_Costs')
+    gross_profit_col = col(df, 'Realized Gross Profit', 'Realized_Gross_Profit')
+    markup_col = col(df, 'Realized Markup', 'Realized_Markup')
+    margin_col = col(df, 'Realized Margin', 'Realized_Margin')
+    irr_col = col(df, 'Realized IRR', 'Realized_IRR')
+    days_col = col(df, 'Days Until Sold', 'Days_Until_Sold')
 
     numeric = lambda s: pd.to_numeric(s, errors='coerce')
 
@@ -296,7 +243,7 @@ def create_summary_stats(df: pd.DataFrame) -> Dict[str, float]:
 
     markup_vals = numeric(df[markup_col]).dropna()
     margin_vals = numeric(df[margin_col]).dropna()
-    irr_vals = numeric(df[irr_col]).dropna()  # already in percent units
+    irr_vals = numeric(df[irr_col]).dropna()  # percent
     days_vals = numeric(df[days_col]).dropna()
 
     return {
@@ -321,7 +268,7 @@ def create_summary_stats(df: pd.DataFrame) -> Dict[str, float]:
         'min_irr': float(irr_vals.min()) if len(irr_vals) else 0.0,
     }
 
-# ---------- Excel builders (unchanged output fields unless you want IRR there too) ----------
+# ---------- Excel ----------
 def create_excel_download(df_original: pd.DataFrame, filename: str) -> BytesIO:
     output = BytesIO()
     wb = xlsxwriter.Workbook(output, {'in_memory': True, 'nan_inf_to_errors': True})
@@ -344,7 +291,7 @@ def create_excel_download(df_original: pd.DataFrame, filename: str) -> BytesIO:
                'primary_opportunity_status_label','Days_Until_Sold','custom.Asset_Date_Sold',
                'custom.Asset_Gross_Sales_Price','custom.Asset_Closing_Costs',
                'Realized_Gross_Profit','Realized_Markup','Realized_Margin',
-               'Realized_IRR']  # include IRR in Excel as well, since it’s useful
+               'Realized_IRR']  # percent
 
     for col, h in enumerate(headers):
         ws.write(0, col, h, header_fmt)
@@ -354,27 +301,23 @@ def create_excel_download(df_original: pd.DataFrame, filename: str) -> BytesIO:
         lead_id = str(data.get('id', '') or '')
         ws.write(row, 0, '' if lead_id in ('', 'nan') else lead_id if lead_id else '', text_hi if lead_id in ('', 'nan') else None)
 
-        # Property Name
+        # Name
         pname = str(data.get('display_name', '') or '')
         ws.write(row, 1, '' if pname in ('', 'nan') else pname, text_hi if pname in ('', 'nan') else None)
 
-        # Owner
+        # Owner / State / County
         owner = str(data.get('custom.Asset_Owner', '') or '')
-        ws.write(row, 2, '' if owner in ('', 'nan') else owner, text_hi if owner in ('', 'nan') else None)
-
-        # State
         state = str(data.get('custom.All_State', '') or '')
-        ws.write(row, 3, '' if state in ('', 'nan') else state, text_hi if state in ('', 'nan') else None)
-
-        # County
         county = str(data.get('custom.All_County', '') or '')
+        ws.write(row, 2, '' if owner in ('', 'nan') else owner, text_hi if owner in ('', 'nan') else None)
+        ws.write(row, 3, '' if state in ('', 'nan') else state, text_hi if state in ('', 'nan') else None)
         ws.write(row, 4, '' if county in ('', 'nan') else county, text_hi if county in ('', 'nan') else None)
 
         # Acres
         acres = safe_numeric_value(data.get('custom.All_Asset_Surveyed_Acres', 0))
         ws.write_number(row, 5, acres, number_fmt if acres else number_hi)
 
-        # Cost Basis
+        # Basis
         basis = safe_numeric_value(data.get('custom.Asset_Cost_Basis', 0))
         ws.write_number(row, 6, basis, currency_fmt if basis else currency_hi)
 
@@ -385,7 +328,7 @@ def create_excel_download(df_original: pd.DataFrame, filename: str) -> BytesIO:
         else:
             ws.write_datetime(row, 7, pd.to_datetime(dp).to_pydatetime(), date_fmt)
 
-        # Opportunity Status
+        # Status
         status = str(data.get('primary_opportunity_status_label', '') or '')
         ws.write(row, 8, '' if status in ('', 'nan') else status, text_hi if status in ('', 'nan') else None)
 
@@ -403,34 +346,27 @@ def create_excel_download(df_original: pd.DataFrame, filename: str) -> BytesIO:
         else:
             ws.write_datetime(row, 10, pd.to_datetime(ds).to_pydatetime(), date_fmt)
 
-        # Gross Sales
+        # Gross / Closing / Profit
         gross = safe_numeric_value(data.get('custom.Asset_Gross_Sales_Price', 0))
-        ws.write_number(row, 11, gross, currency_fmt if gross else currency_hi)
-
-        # Closing Costs
         cc = safe_numeric_value(data.get('custom.Asset_Closing_Costs', 0))
-        ws.write_number(row, 12, cc, currency_fmt if cc else currency_hi)
-
-        # Gross Profit
         gp = safe_numeric_value(data.get('Realized_Gross_Profit', 0))
+        ws.write_number(row, 11, gross, currency_fmt if gross else currency_hi)
+        ws.write_number(row, 12, cc, currency_fmt if cc else currency_hi)
         ws.write_number(row, 13, gp, currency_fmt if gp else currency_hi)
 
-        # Markup (percent expects 0–1)
+        # Markup / Margin (as 0–1)
         mu = safe_numeric_value(data.get('Realized_Markup', 0)) / 100.0
-        ws.write_number(row, 14, mu, pct_fmt if mu else pct_hi)
-
-        # Margin (percent expects 0–1)
         mar = safe_numeric_value(data.get('Realized_Margin', 0)) / 100.0
+        ws.write_number(row, 14, mu, pct_fmt if mu else pct_hi)
         ws.write_number(row, 15, mar, pct_fmt if mar else pct_hi)
 
-        # IRR (percent expects 0–1)
+        # IRR (as 0–1)
         irr = data.get('Realized_IRR')
         if pd.isna(irr) or irr is None:
             ws.write_number(row, 16, 0.0, pct_hi)
         else:
             ws.write_number(row, 16, safe_numeric_value(irr)/100.0, pct_fmt)
 
-    # Column sizes
     ws.set_column(0, 0, 12)
     ws.set_column(1, 1, 25)
     for c in range(2, len(headers)):
@@ -451,7 +387,6 @@ def create_error_report_excel(error_df: pd.DataFrame, total_records: int, proces
     ok_fmt = wb.add_format({'bg_color': '#E8F5E8', 'border': 1})
     warn_fmt = wb.add_format({'bg_color': '#FFEBEE', 'border': 1})
 
-    # Summary
     ws_summary.write(0, 0, 'Import Summary Report', hdr)
     ws_summary.write(2, 0, 'Metric', hdr)
     ws_summary.write(2, 1, 'Value', hdr)
@@ -468,7 +403,6 @@ def create_error_report_excel(error_df: pd.DataFrame, total_records: int, proces
     ws_summary.set_column(0, 0, 25)
     ws_summary.set_column(1, 1, 15)
 
-    # Breakdown
     if len(error_df) > 0:
         ws_summary.write(8, 0, 'Error Breakdown by Type', hdr)
         ws_summary.write(9, 0, 'Error Type', hdr)
@@ -478,7 +412,6 @@ def create_error_report_excel(error_df: pd.DataFrame, total_records: int, proces
             ws_summary.write(i, 0, etype, warn_fmt)
             ws_summary.write(i, 1, int(cnt), warn_fmt)
 
-        # Details sheet
         headers = ['Row Number','ID','Property Name','Owner','Opportunity Status','Error Type','Error Detail','Date Sold']
         for c, h in enumerate(headers):
             ws_error.write(0, c, h, hdr_err)
@@ -507,7 +440,7 @@ def create_error_report_excel(error_df: pd.DataFrame, total_records: int, proces
     output.seek(0)
     return output
 
-# ---------- PDF builder (labels still "Days Held" from your last change) ----------
+# ---------- PDF (uses "Days Held" label; includes Realized IRR) ----------
 def create_pdf_download(df_dict: Dict[str, pd.DataFrame], filename: str) -> Optional[BytesIO]:
     if not REPORTLAB_AVAILABLE:
         st.error("PDF generation requires reportlab. Please install it: pip install reportlab")
@@ -540,7 +473,8 @@ def create_pdf_download(df_dict: Dict[str, pd.DataFrame], filename: str) -> Opti
 
         headers = ['Property\nName','Owner','State','County','Acres','Cost\nBasis',
                    'Date\nPurchased','Days\nHeld','Date\nSold','Gross Sales\nPrice',
-                   'Closing\nCosts','Realized Gross\nProfit','Realized\nMarkup','Realized\nMargin','Realized\nIRR']
+                   'Closing\nCosts','Realized Gross\nProfit','Realized\nMarkup',
+                   'Realized\nMargin','Realized\nIRR']
         table_data = [headers]
 
         for _, row in qdf.iterrows():
@@ -568,7 +502,6 @@ def create_pdf_download(df_dict: Dict[str, pd.DataFrame], filename: str) -> Opti
             ]
             table_data.append(r)
 
-        # Slightly squeeze columns to add IRR
         col_widths = [1.9*inch,1.1*inch,0.4*inch,0.85*inch,0.5*inch,0.85*inch,
                       0.85*inch,0.6*inch,0.85*inch,1.05*inch,0.85*inch,1.05*inch,0.6*inch,0.6*inch,0.6*inch]
         table = Table(table_data, colWidths=col_widths, repeatRows=1)
@@ -626,7 +559,7 @@ def create_pdf_download(df_dict: Dict[str, pd.DataFrame], filename: str) -> Opti
         else:
             story.append(Spacer(1, 12))
 
-    # Overall summary if multiple quarters
+    # Overall summary (if multi-quarter)
     if len([q for q in sorted_qs if q]) > 1:
         all_data = pd.concat(df_dict.values(), ignore_index=True)
         overall = create_summary_stats(all_data)
@@ -886,7 +819,7 @@ def main():
             data=xfile.getvalue(),
             file_name=excel_name,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            help="Excel with original Close.com field names (now includes Realized_IRR)"
+            help="Excel with original Close.com field names (includes Realized_IRR)"
         )
 
     with d2:
